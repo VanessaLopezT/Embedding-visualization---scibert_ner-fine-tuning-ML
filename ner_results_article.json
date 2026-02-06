@@ -1,0 +1,352 @@
+[
+  {
+    "text": "Artificial Intelligence Models: Concepts, Types, and Applications\nArtificial Intelligence (AI) models are the core mechanisms that allow machines to simulate human intelligence.",
+    "entities": []
+  },
+  {
+    "text": "These models are designed to recognize patterns, make decisions, learn from data, and perform tasks that traditionally required human cognition, such as understanding language, recognizing images, solving problems, and predicting outcomes.",
+    "entities": []
+  },
+  {
+    "text": "Over the past decades, AI models have evolved significantly, becoming more complex, accurate, and influential across many industries.\nAt a fundamental level, an AI model is a mathematical and computational representation trained on data. The goal of the model is to learn relationships within the data so it can generalize and make predictions or decisions when faced with new, unseen information.",
+    "entities": []
+  },
+  {
+    "text": "This learning process is what distinguishes artificial intelligence from traditional rule-based programming, where every behavior must be explicitly defined by a human.\nMachine Learning Models\nOne of the most important branches of AI is Machine Learning (ML). Machine learning models learn patterns automatically from data rather than being manually programmed.",
+    "entities": [
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.2756703197956085,
+        "word": "learning",
+        "start": 245,
+        "end": 253
+      }
+    ]
+  },
+  {
+    "text": "These models improve their performance as they are exposed to more data over time.\nMachine learning models are commonly divided into three main categories:\nSupervised learning models are trained using labeled data. This means that each input comes with a known correct output.",
+    "entities": []
+  },
+  {
+    "text": "For example, a supervised model can be trained to detect spam emails by learning from thousands of emails labeled as “spam” or “not spam.” Popular supervised learning algorithms include linear regression, logistic regression, decision trees, and support vector machines.\nUnsupervised learning models work with unlabeled data.",
+    "entities": [
+      {
+        "entity_group": "MODEL",
+        "score": 0.30488353967666626,
+        "word": "linear",
+        "start": 186,
+        "end": 192
+      },
+      {
+        "entity_group": "MODEL",
+        "score": 0.29883813858032227,
+        "word": "logistic",
+        "start": 205,
+        "end": 213
+      }
+    ]
+  },
+  {
+    "text": "Their goal is to discover hidden patterns or structures without predefined answers. Clustering algorithms, such as K-means, are a common example. These models are often used for customer segmentation, anomaly detection, and data exploration.\nReinforcement learning models learn through interaction with an environment.",
+    "entities": [
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.30016034841537476,
+        "word": "reinforcement",
+        "start": 242,
+        "end": 255
+      }
+    ]
+  },
+  {
+    "text": "Instead of labeled data, the model receives rewards or penalties based on its actions. Over time, it learns which actions lead to better outcomes. Reinforcement learning is widely used in robotics, game-playing AI, and autonomous systems.\nNeural Networks and Deep Learning\nNeural networks are inspired by the structure of the human brain.",
+    "entities": [
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.31916293501853943,
+        "word": "reinforcement learning",
+        "start": 147,
+        "end": 169
+      },
+      {
+        "entity_group": "MODEL",
+        "score": 0.3710908591747284,
+        "word": "neural",
+        "start": 239,
+        "end": 245
+      },
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.3441954553127289,
+        "word": "deep",
+        "start": 259,
+        "end": 263
+      },
+      {
+        "entity_group": "MODEL",
+        "score": 0.3781979978084564,
+        "word": "neural",
+        "start": 273,
+        "end": 279
+      }
+    ]
+  },
+  {
+    "text": "They consist of layers of interconnected nodes, called neurons, that process information in stages. Each neuron applies a mathematical transformation to the input data and passes the result to the next layer.\nDeep learning models are neural networks with many layers, allowing them to learn highly complex patterns.",
+    "entities": [
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.36568474769592285,
+        "word": "deep learning",
+        "start": 209,
+        "end": 222
+      }
+    ]
+  },
+  {
+    "text": "These models have been responsible for major breakthroughs in artificial intelligence. For example, deep learning is used in image recognition, speech recognition, natural language processing, and autonomous vehicles.\nConvolutional Neural Networks (CNNs) are specialized deep learning models designed for image and video analysis.",
+    "entities": [
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.408378005027771,
+        "word": "deep learning",
+        "start": 100,
+        "end": 113
+      },
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.3486514389514923,
+        "word": "deep learning",
+        "start": 271,
+        "end": 284
+      }
+    ]
+  },
+  {
+    "text": "They are capable of detecting edges, shapes, and objects within images.",
+    "entities": []
+  },
+  {
+    "text": "Recurrent Neural Networks (RNNs), and their advanced versions such as LSTMs and GRUs, are designed to process sequential data, making them useful for tasks like speech recognition and time-series prediction.\nNatural Language Processing Models\nNatural Language Processing (NLP) models focus on enabling machines to understand, generate, and interact using human language.",
+    "entities": [
+      {
+        "entity_group": "MODEL",
+        "score": 0.4084244668483734,
+        "word": "rn",
+        "start": 27,
+        "end": 29
+      },
+      {
+        "entity_group": "MODEL",
+        "score": 0.5737883448600769,
+        "word": "ls",
+        "start": 70,
+        "end": 72
+      },
+      {
+        "entity_group": "MODEL",
+        "score": 0.5926206707954407,
+        "word": "gr",
+        "start": 80,
+        "end": 82
+      },
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.5190773010253906,
+        "word": "natural",
+        "start": 208,
+        "end": 215
+      },
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.4751025438308716,
+        "word": "natural",
+        "start": 243,
+        "end": 250
+      },
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.8265237212181091,
+        "word": "nl",
+        "start": 272,
+        "end": 274
+      }
+    ]
+  },
+  {
+    "text": "Early NLP systems relied heavily on rules and grammar, but modern NLP models are based on deep learning and large-scale data.\nTransformer-based models have revolutionized NLP. These models use attention mechanisms to understand the context and relationships between words in a sentence.",
+    "entities": [
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.8616872429847717,
+        "word": "nl",
+        "start": 6,
+        "end": 8
+      },
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.840999960899353,
+        "word": "nl",
+        "start": 66,
+        "end": 68
+      },
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.5187870264053345,
+        "word": "deep learning",
+        "start": 90,
+        "end": 103
+      },
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.8410421013832092,
+        "word": "nl",
+        "start": 171,
+        "end": 173
+      }
+    ]
+  },
+  {
+    "text": "Large Language Models (LLMs), such as those used in chatbots, text summarization, and translation systems, are trained on massive datasets containing text from books, articles, and online sources.\nThese models can generate coherent and context-aware text, answer questions, write essays, and assist with programming tasks.",
+    "entities": [
+      {
+        "entity_group": "MODEL",
+        "score": 0.2636338174343109,
+        "word": "large",
+        "start": 0,
+        "end": 5
+      },
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.3000563979148865,
+        "word": "language models",
+        "start": 6,
+        "end": 21
+      },
+      {
+        "entity_group": "MODEL",
+        "score": 0.7036076188087463,
+        "word": "ll",
+        "start": 23,
+        "end": 25
+      },
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.4080128073692322,
+        "word": "summar",
+        "start": 67,
+        "end": 73
+      }
+    ]
+  },
+  {
+    "text": "However, despite their capabilities, they do not possess true understanding or consciousness; instead, they predict the most likely next word based on patterns learned during training.\nTraining and Evaluation of AI Models\nTraining an AI model involves adjusting its internal parameters to minimize errors. This process usually requires large amounts of data and significant computational power.",
+    "entities": []
+  },
+  {
+    "text": "During training, the model compares its predictions to the correct outputs and updates itself to reduce future mistakes.\nOnce trained, models must be evaluated using separate test data to measure their accuracy, reliability, and generalization ability.",
+    "entities": [
+      {
+        "entity_group": "METRIC",
+        "score": 0.6456508040428162,
+        "word": "accuracy",
+        "start": 202,
+        "end": 210
+      },
+      {
+        "entity_group": "METRIC",
+        "score": 0.5404729843139648,
+        "word": "reliability",
+        "start": 212,
+        "end": 223
+      }
+    ]
+  },
+  {
+    "text": "Common evaluation metrics include accuracy, precision, recall, and F1-score, depending on the task.\nOverfitting is a major challenge in AI model development. It occurs when a model performs very well on training data but poorly on new data.",
+    "entities": [
+      {
+        "entity_group": "METRIC",
+        "score": 0.7591910362243652,
+        "word": "accuracy",
+        "start": 34,
+        "end": 42
+      },
+      {
+        "entity_group": "METRIC",
+        "score": 0.6992565989494324,
+        "word": "precision",
+        "start": 44,
+        "end": 53
+      },
+      {
+        "entity_group": "METRIC",
+        "score": 0.6946908235549927,
+        "word": "recall",
+        "start": 55,
+        "end": 61
+      },
+      {
+        "entity_group": "METRIC",
+        "score": 0.40532374382019043,
+        "word": "f",
+        "start": 67,
+        "end": 68
+      }
+    ]
+  },
+  {
+    "text": "Techniques such as regularization, data augmentation, and cross-validation are used to address this issue.\nApplications of Artificial Intelligence Models\nAI models are widely used across many fields. In healthcare, they assist in medical image analysis, disease prediction, and drug discovery. In finance, AI models detect fraud, assess credit risk, and optimize trading strategies.",
+    "entities": [
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.3308041989803314,
+        "word": "cross",
+        "start": 58,
+        "end": 63
+      },
+      {
+        "entity_group": "MODEL",
+        "score": 0.29364579916000366,
+        "word": "ai",
+        "start": 154,
+        "end": 156
+      }
+    ]
+  },
+  {
+    "text": "In transportation, they power navigation systems and autonomous vehicles.\nIn everyday life, AI models are present in recommendation systems on streaming platforms, voice assistants, facial recognition systems, and personalized advertising.",
+    "entities": []
+  },
+  {
+    "text": "These applications demonstrate how deeply integrated AI has become in modern society.\nEthical Considerations and Limitations\nDespite their advantages, AI models raise important ethical concerns. Bias in training data can lead to unfair or discriminatory outcomes. Privacy issues arise when models are trained on sensitive personal data.",
+    "entities": []
+  },
+  {
+    "text": "Additionally, the lack of transparency in complex models, often referred to as the “black box” problem, makes it difficult to understand how certain decisions are made.\nAI models also have limitations. They depend heavily on data quality and quantity, and they cannot reason or think independently like humans.",
+    "entities": []
+  },
+  {
+    "text": "Their outputs are based on probabilities, not genuine understanding or intent.\nConclusion\nArtificial intelligence models represent one of the most significant technological advancements of the modern era. From simple machine learning algorithms to complex deep learning systems, these models have transformed how machines interact with the world.",
+    "entities": [
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.3413814902305603,
+        "word": "learning",
+        "start": 225,
+        "end": 233
+      },
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.37013304233551025,
+        "word": "deep learning",
+        "start": 256,
+        "end": 269
+      }
+    ]
+  },
+  {
+    "text": "While they offer enormous potential, responsible development and ethical considerations are essential to ensure that AI benefits society as a whole.\nAs research continues, AI models will likely become even more powerful, efficient, and integrated into daily life, shaping the future of technology and human interaction..",
+    "entities": []
+  }
+]

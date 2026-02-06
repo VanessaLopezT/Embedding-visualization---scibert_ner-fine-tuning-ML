@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>SciBERT NER Visualization</title>
+
+  {% load static %}
+  <link rel="stylesheet" href="{% static 'css/style.css' %}?v=20260205" />
+  <link rel="stylesheet" href="{% static 'css/textPanel.css' %}?v=20260205" />
+  <style>
+    html, body { height: 100%; overflow: hidden !important; }
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
+  <style>
+    .page-header {
+      padding: 16px 24px;
+      background: #ffffff;
+      border-bottom: 1px solid #e0e0e0;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+    }
+    .page-header h2 {
+      margin: 0;
+      font-size: 18px;
+      color: #1a1a1a;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      text-align: center;
+      flex: 1;
+    }
+    #container {
+      margin-top: 70px;
+    }
+    .upload-btn {
+      padding: 8px 16px;
+      background: #0d6efd;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .upload-btn:hover {
+      background: #0b5ed7;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    .upload-btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    #file-input {
+      display: none;
+    }
+    .loading-indicator {
+      display: none;
+      color: #0d6efd;
+      font-size: 13px;
+      margin-left: 10px;
+      font-weight: 500;
+      letter-spacing: 1px;
+    }
+    .loading-indicator.active {
+      display: inline;
+      animation: fade-pulse 1.5s ease-in-out infinite;
+    }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .article-select {
+      padding: 6px 10px;
+      border: 1px solid #d0d0d0;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #333;
+      min-width: 220px;
+    }
+    @keyframes fade-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+  </style>
+</head>
+<body style="overflow:hidden;">
+<div id="app" style="height:100vh; display:flex; flex-direction:column; overflow:hidden;">
+
+<div class="page-header">
+  <div class="header-left">
+    <select id="article-select" class="article-select">
+      <option value="example">Datos de ejemplo</option>
+    </select>
+  </div>
+  <h2>SciBERT – Entity Embeddings Visualization</h2>
+  <div class="header-right">
+    <button class="upload-btn" id="upload-article-btn">Cargar Artículo</button>
+    <span class="loading-indicator" id="loading">Procesando...</span>
+    <span id="entities-summary" style="font-size:12px; color:#666; margin-left:12px;">Entidades: -</span>
+    <input type="file" id="file-input" accept=".txt,.pdf" />
+  </div>
+</div>
+
+<div id="progress-container" style="display:none; margin: 40px 24px 12px;">
+  <div style="font-size:12px; color:#555; margin-bottom:6px;">
+    <span id="progress-label">Procesando...</span>
+  </div>
+  <div style="height:8px; background:#eee; border-radius:6px; overflow:hidden;">
+    <div id="progress-bar" style="height:8px; width:0%; background:#0d6efd; transition: width 0.3s;"></div>
+  </div>
+  <div id="entities-info" style="font-size:12px; color:#666; margin-top:6px;"></div>
+</div>
+
+<div id="container" style="flex:1; min-height:0; overflow:hidden;">
+  <div id="chart-panel" style="height: 100%; overflow: hidden;">
+    <div id="tsne-chart"></div>
+  </div>
+
+  <div id="resizer"></div>
+
+  <div id="text-panel" style="height: 100%; overflow-y: auto;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+      <h2>Texto Analizado</h2>
+      <span id="data-source" style="font-size: 12px; color: #999;">Datos de ejemplo</span>
+    </div>
+    <div id="text-content"></div>
+  </div>
+</div>
+
+</div>
+
+<script type="module">
+  import { loadTSNEData } from "{% static 'js/dataLoader.js' %}?v=20260205";
+  import { initTSNEChart } from "{% static 'js/tsneChart.js' %}?v=20260205";
+  import { renderText } from "{% static 'js/textPanel.js' %}?v=20260205";
+
+  const config = {
+    exampleUrl: "/api/example/tsne",
+    listUrl: "/api/articles",
+    uploadUrl: "/api/articles/upload",
+    tsneUrl: (id) => `/api/articles/${id}/tsne`,
+    metaUrl: (id) => `/api/articles/${id}/meta`
+  };
+
+  let currentChart = null;
+  const entitiesSummary = document.getElementById("entities-summary");
+
+  async function loadAndRenderData(source, articleId = null) {
+    try {
+      let data;
+      if (source === "article" && articleId) {
+        const response = await fetch(config.tsneUrl(articleId));
+        if (!response.ok) throw new Error("No article data available");
+        const result = await response.json();
+        data = result.data;
+        document.getElementById("data-source").textContent = "Datos del artículo";
+      } else {
+        const result = await loadTSNEData(config.exampleUrl);
+        data = result.data;
+        document.getElementById("data-source").textContent = "Datos de ejemplo";
+      }
+
+      const chartDom = document.getElementById("tsne-chart");
+      if (currentChart) {
+        currentChart.dispose();
+      }
+
+      currentChart = echarts.init(chartDom);
+      initTSNEChart(currentChart, data);
+      renderText(data, document.getElementById("text-content"));
+      if (entitiesSummary) {
+        entitiesSummary.textContent = `Entidades: ${data.length}`;
+      }
+    } catch (error) {
+      console.error("Error cargando datos:", error);
+      alert("Error al cargar datos: " + error.message);
+    }
+  }
+
+  async function refreshArticleList(selectedId = null) {
+    try {
+      const response = await fetch(config.listUrl);
+      if (!response.ok) throw new Error("No se pudo cargar la lista de artículos");
+      const result = await response.json();
+
+      const select = document.getElementById("article-select");
+      const currentValue = selectedId || select.value;
+
+      select.innerHTML = '<option value="example">Datos de ejemplo</option>';
+      result.articles.forEach(article => {
+        const option = document.createElement("option");
+        option.value = article.id;
+        option.textContent = `${article.original_name} (${article.status})`;
+        select.appendChild(option);
+      });
+
+      if (currentValue) {
+        select.value = currentValue;
+      }
+    } catch (error) {
+      console.error("Error listando artículos:", error);
+    }
+  }
+
+  // Initial load
+  await refreshArticleList("example");
+  await loadAndRenderData("example");
+
+  // Selector
+  document.getElementById("article-select").addEventListener("change", async (e) => {
+    const value = e.target.value;
+    if (value === "example") {
+      await loadAndRenderData("example");
+    } else {
+      await loadAndRenderData("article", value);
+    }
+  });
+
+  // Resizer logic
+  const resizer = document.getElementById("resizer");
+  const chartPanel = document.getElementById("chart-panel");
+  const textPanel = document.getElementById("text-panel");
+  let isResizing = false;
+
+  resizer.addEventListener("mousedown", () => {
+    isResizing = true;
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!isResizing) return;
+    const container = document.getElementById("container");
+    const newChartWidth = ((e.clientX - container.getBoundingClientRect().left) / container.offsetWidth) * 100;
+    if (newChartWidth > 30 && newChartWidth < 80) {
+      chartPanel.style.flex = newChartWidth;
+      textPanel.style.width = (100 - newChartWidth) + "%";
+      if (currentChart) currentChart.resize();
+    }
+  });
+
+  document.addEventListener("mouseup", () => {
+    isResizing = false;
+  });
+
+  // Upload flow
+  const uploadBtn = document.getElementById("upload-article-btn");
+  const fileInput = document.getElementById("file-input");
+  const loadingIndicator = document.getElementById("loading");
+  const progressContainer = document.getElementById("progress-container");
+  const progressBar = document.getElementById("progress-bar");
+  const progressLabel = document.getElementById("progress-label");
+  const entitiesInfo = document.getElementById("entities-info");
+
+  uploadBtn.addEventListener("click", () => {
+    fileInput.click();
+  });
+
+  fileInput.addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    uploadBtn.disabled = true;
+    loadingIndicator.classList.add("active");
+    loadingIndicator.textContent = "Procesando...";
+    progressContainer.style.display = "block";
+    progressBar.style.width = "10%";
+    progressLabel.textContent = "En cola...";
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await fetch(config.uploadUrl, {
+        method: "POST",
+        body: formData
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.article) {
+        await refreshArticleList();
+        await pollArticleStatus(result.article.id, file.name);
+      } else {
+        alert(`Error: ${result.error || "No se pudo procesar el artículo"}`);
+      }
+    } catch (error) {
+      console.error("Error:", error);
+      alert("Error al procesar artículo: " + error.message);
+    } finally {
+      uploadBtn.disabled = false;
+      loadingIndicator.classList.remove("active");
+      loadingIndicator.textContent = "";
+      fileInput.value = "";
+    }
+  });
+
+  async function pollArticleStatus(articleId, fileName) {
+    const stageToProgress = {
+      "queued": 10,
+      "processing": 30,
+      "ner": 60,
+      "tsne": 85,
+      "completed": 100,
+      "failed": 100
+    };
+
+    let attempts = 0;
+    const maxAttempts = 300; // ~10 min
+
+    while (attempts < maxAttempts) {
+      attempts += 1;
+      try {
+        const response = await fetch(config.metaUrl(articleId));
+        const result = await response.json();
+        const article = result.article || {};
+
+        const stage = article.stage || "processing";
+        const progressInfo = result.progress || {};
+        const progress = typeof progressInfo.percent === "number"
+          ? progressInfo.percent
+          : (stageToProgress[stage] || 50);
+        progressBar.style.width = `${progress}%`;
+        const processed = progressInfo.processed;
+        const total = progressInfo.total;
+        const eta = progressInfo.eta_seconds;
+        const entitiesExtracted = progressInfo.entities_extracted;
+        const currentText = progressInfo.current_text;
+        const currentChunk = progressInfo.current_chunk;
+        const totalChunks = progressInfo.total_chunks;
+
+        const baseLabel = stage === "completed" ? "Completado" :
+          stage === "failed" ? "Falló" :
+          stage === "queued" ? "En cola..." :
+          stage === "ner" ? "Extrayendo entidades (NER)..." :
+          stage === "tsne" ? "Generando t-SNE..." :
+          "Procesando...";
+        const countLabel = (typeof processed === "number" && typeof total === "number" && total > 0)
+          ? ` ${processed}/${total}`
+          : "";
+        const chunkLabel = (typeof currentText === "number" && typeof currentChunk === "number" && typeof totalChunks === "number")
+          ? ` · texto ${currentText} chunk ${currentChunk}/${totalChunks}`
+          : "";
+        const etaLabel = (typeof eta === "number" && eta > 0)
+          ? ` · ETA ${formatEta(eta)}`
+          : "";
+        const entitiesLabel = (typeof entitiesExtracted === "number")
+          ? ` · entidades ${entitiesExtracted}`
+          : "";
+        progressLabel.textContent = `${baseLabel}${countLabel}${chunkLabel}${etaLabel}${entitiesLabel}`;
+
+        if (entitiesInfo) {
+          const paragraphsLabel = (typeof processed === "number" && typeof total === "number" && total > 0)
+            ? `Párrafos: ${processed}/${total}`
+            : "Párrafos: -";
+          const entitiesCountLabel = (typeof entitiesExtracted === "number")
+            ? `Entidades: ${entitiesExtracted}`
+            : "Entidades: -";
+          entitiesInfo.textContent = `${paragraphsLabel} · ${entitiesCountLabel}`;
+        }
+        if (entitiesSummary && typeof entitiesExtracted === "number") {
+          entitiesSummary.textContent = `Entidades: ${entitiesExtracted}`;
+        }
+
+        if (article.status === "processed") {
+          progressBar.style.width = "100%";
+          progressLabel.textContent = "Completado";
+          await refreshArticleList(articleId);
+          document.getElementById("article-select").value = articleId;
+          await loadAndRenderData("article", articleId);
+          alert(`Artículo procesado correctamente: ${fileName}`);
+          break;
+        }
+
+        if (article.status === "failed") {
+          alert(`Error al procesar: ${article.error || "Revisa la consola del servidor"}`);
+          break;
+        }
+      } catch (error) {
+        console.error("Error consultando estado:", error);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    // Mantener visible la informaciÃ³n final de pÃ¡rrafos y entidades
+    progressContainer.style.display = "block";
+  }
+
+  function formatEta(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    if (mins > 0) return `${mins}m ${secs}s`;
+    return `${secs}s`;
+  }
+</script>
+
+</body>
+</html>

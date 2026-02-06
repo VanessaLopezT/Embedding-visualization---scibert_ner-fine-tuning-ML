@@ -1,0 +1,273 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<!--
+  index_text_view.html
+  Página principal de visualización de entidades NER con t-SNE.
+  - Muestra una gráfica interactiva en el panel izquierdo
+  - Panel derecho con el texto analizado y entidades coloreadas
+  - Divisor redimensionable entre ambos paneles
+  - Sincronización entre gráfica y texto: hover en uno resalta en el otro
+  - Botón para adjuntar artículos científicos
+-->
+<head>
+  <meta charset="UTF-8" />
+  <title>SciBERT NER Visualization</title>
+
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/textPanel.css" />
+
+  <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
+  <style>
+    .page-header {
+      padding: 16px 24px;
+      background: #ffffff;
+      border-bottom: 1px solid #e0e0e0;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .page-header h1 {
+      margin: 0;
+      font-size: 18px;
+      color: #1a1a1a;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+    .page-header h2 {
+      margin: 0;
+      font-size: 18px;
+      color: #1a1a1a;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      text-align: center;
+      flex: 1;
+    }
+    #container {
+      margin-top: 60px;
+    }
+    
+    .upload-btn {
+      padding: 8px 16px;
+      background: #0d6efd;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .upload-btn:hover {
+      background: #0b5ed7;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    .upload-btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    #file-input {
+      display: none;
+    }
+    .loading-indicator {
+      display: none;
+      color: #0d6efd;
+      font-size: 13px;
+      margin-left: 10px;
+      font-weight: 500;
+      letter-spacing: 1px;
+    }
+    
+    /* Animación de puntos pulsantes */
+    @keyframes pulse-dots {
+      0%, 20% { content: "Procesando"; }
+      40% { content: "Procesando."; }
+      60% { content: "Procesando.."; }
+      80%, 100% { content: "Procesando..."; }
+    }
+    
+    /* Animación alternativa: fade in/out suave */
+    @keyframes fade-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+    
+    .loading-indicator.active {
+      display: inline;
+      animation: fade-pulse 1.5s ease-in-out infinite;
+    }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="page-header">
+  <div></div>
+  <h2>SciBERT – Entity Embeddings Visualization</h2>
+  <div class="header-right">
+    <button class="upload-btn" id="upload-article-btn">Cargar Artículo</button>
+    <span class="loading-indicator" id="loading">Procesando...</span>
+    <input type="file" id="file-input" accept=".txt,.pdf" />
+  </div>
+</div>
+
+<div id="container">
+  <!-- PANEL GRÁFICA - LADO IZQUIERDO -->
+  <div id="chart-panel">
+    <div id="tsne-chart"></div>
+  </div>
+
+  <!-- DIVISOR REDIMENSIONABLE -->
+  <div id="resizer"></div>
+
+  <!-- PANEL TEXTO - LADO DERECHO -->
+  <div id="text-panel">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+      <h2>Texto Analizado</h2>
+      <span id="data-source" style="font-size: 12px; color: #999;">Datos de ejemplo</span>
+    </div>
+    <div id="text-content"></div>
+  </div>
+</div>
+
+<script type="module">
+  import { loadTSNEData } from "./js/dataLoader.js";
+  import { initTSNEChart } from "./js/tsneChart.js";
+  import { renderText } from "./js/textPanel.js";
+
+  let currentChart = null;
+
+  async function loadAndRenderData(dataSource = "default") {
+    try {
+      let data;
+
+      if (dataSource === "article") {
+        const response = await fetch("/api/get-article-data");
+        if (!response.ok) throw new Error("No article data available");
+        const result = await response.json();
+        data = result.data;
+        document.getElementById("data-source").textContent = "Datos del artículo";
+      } else {
+        data = await loadTSNEData();
+        document.getElementById("data-source").textContent = "Datos de ejemplo";
+      }
+
+      const chartDom = document.getElementById("tsne-chart");
+      
+      // Destruir gráfica anterior si existe
+      if (currentChart) {
+        currentChart.dispose();
+      }
+
+      currentChart = echarts.init(chartDom);
+      initTSNEChart(currentChart, data);
+
+      renderText(
+        data,
+        document.getElementById("text-content")
+      );
+    } catch (error) {
+      console.error("Error cargando datos:", error);
+      alert("Error al cargar datos: " + error.message);
+    }
+  }
+
+  // Cargar datos por defecto al iniciar
+  loadAndRenderData("default");
+
+  // REDIMENSIONADOR DEL PANEL
+  const resizer = document.getElementById("resizer");
+  const chartPanel = document.getElementById("chart-panel");
+  const textPanel = document.getElementById("text-panel");
+  let isResizing = false;
+
+  resizer.addEventListener("mousedown", () => {
+    isResizing = true;
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!isResizing) return;
+
+    const container = document.getElementById("container");
+    const newChartWidth = ((e.clientX - container.getBoundingClientRect().left) / container.offsetWidth) * 100;
+
+    if (newChartWidth > 30 && newChartWidth < 80) {
+      chartPanel.style.flex = newChartWidth;
+      textPanel.style.width = (100 - newChartWidth) + "%";
+      if (currentChart) currentChart.resize();
+    }
+  });
+
+  document.addEventListener("mouseup", () => {
+    isResizing = false;
+  });
+
+  // MANEJO DEL UPLOAD DE ARTÍCULOS
+  const uploadBtn = document.getElementById("upload-article-btn");
+  const fileInput = document.getElementById("file-input");
+  const loadingIndicator = document.getElementById("loading");
+
+  uploadBtn.addEventListener("click", () => {
+    fileInput.click();
+  });
+
+  fileInput.addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    uploadBtn.disabled = true;
+    loadingIndicator.classList.add("active");
+    loadingIndicator.textContent = "Procesando...";
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await fetch("/api/upload-article", {
+        method: "POST",
+        body: formData
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.data) {
+        // Si el servidor retorna los datos directamente, úsalos
+        const chartDom = document.getElementById("tsne-chart");
+        if (currentChart) {
+          currentChart.dispose();
+        }
+        currentChart = echarts.init(chartDom);
+        initTSNEChart(currentChart, result.data);
+        renderText(result.data, document.getElementById("text-content"));
+        document.getElementById("data-source").textContent = "Datos del artículo";
+        alert(`Artículo procesado correctamente: ${file.name}`);
+      } else if (response.ok) {
+        alert(`Artículo procesado correctamente: ${file.name}`);
+        // Recargar datos del artículo
+        await loadAndRenderData("article");
+      } else {
+        alert(`Error: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("Error:", error);
+      alert("Error al procesar artículo: " + error.message);
+    } finally {
+      uploadBtn.disabled = false;
+      loadingIndicator.classList.remove("active");
+      loadingIndicator.textContent = "";
+      fileInput.value = "";
+    }
+  });
+</script>
+
+</body>
+</html>

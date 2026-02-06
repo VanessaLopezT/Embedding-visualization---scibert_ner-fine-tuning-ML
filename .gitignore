@@ -1,0 +1,21 @@
+﻿# Entorno virtual
+venv/
+.env/
+
+# Checkpoints y modelos
+checkpoint-*/
+*.pt
+*.bin
+*.ckpt
+
+# Datos y PDFs
+data/
+*.pdf
+
+# Archivos temporales
+__pycache__/
+*.log
+*.tmp
+
+# Modelos grandes
+*.safetensors

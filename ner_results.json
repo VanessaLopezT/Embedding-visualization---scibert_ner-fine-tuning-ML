@@ -1,0 +1,183 @@
+[
+  {
+    "text": "The Transformer architecture has revolutionized natural language processing. BERT and GPT are state-of-the-art models using attention mechanisms. ImageNet dataset contains millions of labeled images for computer vision tasks. The BLEU and ROUGE metrics are commonly used to evaluate machine translation systems.",
+    "entities": [
+      {
+        "entity_group": "MODEL",
+        "score": 0.4522395133972168,
+        "word": "transformer",
+        "start": 4,
+        "end": 15
+      },
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.4277290999889374,
+        "word": "natural",
+        "start": 48,
+        "end": 55
+      },
+      {
+        "entity_group": "MODEL",
+        "score": 0.9225924015045166,
+        "word": "bert",
+        "start": 77,
+        "end": 81
+      },
+      {
+        "entity_group": "MODEL",
+        "score": 0.8979167938232422,
+        "word": "gp",
+        "start": 86,
+        "end": 88
+      },
+      {
+        "entity_group": "MODEL",
+        "score": 0.4943890869617462,
+        "word": "##t",
+        "start": 88,
+        "end": 89
+      },
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.259539932012558,
+        "word": "ble",
+        "start": 230,
+        "end": 233
+      },
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.3441244065761566,
+        "word": "translation",
+        "start": 291,
+        "end": 302
+      }
+    ]
+  },
+  {
+    "text": "Deep learning techniques like Convolutional Neural Networks and Recurrent Neural Networks have achieved impressive results. The ResNet architecture won the ImageNet competition. Transfer learning with models like BERT provides excellent accuracy. Common applications include sentiment analysis and named entity recognition.",
+    "entities": [
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.3466549515724182,
+        "word": "deep learning",
+        "start": 0,
+        "end": 13
+      },
+      {
+        "entity_group": "MODEL",
+        "score": 0.29297104477882385,
+        "word": "recurrent",
+        "start": 64,
+        "end": 73
+      },
+      {
+        "entity_group": "MODEL",
+        "score": 0.45962128043174744,
+        "word": "res",
+        "start": 128,
+        "end": 131
+      },
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.39493027329444885,
+        "word": "transfer learning",
+        "start": 178,
+        "end": 195
+      },
+      {
+        "entity_group": "MODEL",
+        "score": 0.844444751739502,
+        "word": "bert",
+        "start": 213,
+        "end": 217
+      },
+      {
+        "entity_group": "METRIC",
+        "score": 0.5947852730751038,
+        "word": "accuracy",
+        "start": 237,
+        "end": 245
+      }
+    ]
+  },
+  {
+    "text": "The Vision Transformer model applies attention mechanisms to image processing. YOLO is a popular object detection model. The CIFAR-10 dataset is widely used for benchmarking. Accuracy and F1-score are standard evaluation metrics in machine learning research.",
+    "entities": [
+      {
+        "entity_group": "METRIC",
+        "score": 0.7526088953018188,
+        "word": "accuracy",
+        "start": 175,
+        "end": 183
+      },
+      {
+        "entity_group": "METRIC",
+        "score": 0.4545779526233673,
+        "word": "f",
+        "start": 188,
+        "end": 189
+      },
+      {
+        "entity_group": "METRIC",
+        "score": 0.3245736360549927,
+        "word": "score",
+        "start": 191,
+        "end": 196
+      },
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.31393375992774963,
+        "word": "learning",
+        "start": 240,
+        "end": 248
+      }
+    ]
+  },
+  {
+    "text": "Large Language Models such as GPT-3 and PaLM have demonstrated remarkable capabilities. The Transformer-XL architecture improves upon standard Transformers. Word2Vec embeddings were pioneering in NLP technology. The SQuAD dataset revolutionized question answering evaluation.",
+    "entities": [
+      {
+        "entity_group": "MODEL",
+        "score": 0.9081533551216125,
+        "word": "gp",
+        "start": 30,
+        "end": 32
+      },
+      {
+        "entity_group": "MODEL",
+        "score": 0.5328341126441956,
+        "word": "##t",
+        "start": 32,
+        "end": 33
+      },
+      {
+        "entity_group": "MODEL",
+        "score": 0.4471833109855652,
+        "word": "palm",
+        "start": 40,
+        "end": 44
+      },
+      {
+        "entity_group": "MODEL",
+        "score": 0.5435846447944641,
+        "word": "transformer",
+        "start": 92,
+        "end": 103
+      },
+      {
+        "entity_group": "MODEL",
+        "score": 0.33527007699012756,
+        "word": "word",
+        "start": 157,
+        "end": 161
+      },
+      {
+        "entity_group": "TECHNIQUE",
+        "score": 0.8901195526123047,
+        "word": "nl",
+        "start": 196,
+        "end": 198
+      }
+    ]
+  }
+]

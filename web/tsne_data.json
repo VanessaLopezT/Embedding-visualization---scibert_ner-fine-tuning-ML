@@ -1,0 +1,232 @@
+[
+  {
+    "id": 0,
+    "x": 17.48198127746582,
+    "y": -96.770263671875,
+    "label": "MODEL",
+    "entity": "Transformer",
+    "text_index": 0,
+    "sentence_id": 0,
+    "sentence_text": "The Transformer architecture has revolutionized natural language processing. BERT and GPT are state-of-the-art models using attention mechanisms. ImageNet dataset contains millions of labeled images for computer vision tasks. The BLEU and ROUGE metrics are commonly used to evaluate machine translation systems."
+  },
+  {
+    "id": 1,
+    "x": 36.77003479003906,
+    "y": 44.52635955810547,
+    "label": "TECHNIQUE",
+    "entity": "natural",
+    "text_index": 0,
+    "sentence_id": 0,
+    "sentence_text": "The Transformer architecture has revolutionized natural language processing. BERT and GPT are state-of-the-art models using attention mechanisms. ImageNet dataset contains millions of labeled images for computer vision tasks. The BLEU and ROUGE metrics are commonly used to evaluate machine translation systems."
+  },
+  {
+    "id": 2,
+    "x": -19.031057357788086,
+    "y": -109.57585144042969,
+    "label": "MODEL",
+    "entity": "BERT",
+    "text_index": 0,
+    "sentence_id": 0,
+    "sentence_text": "The Transformer architecture has revolutionized natural language processing. BERT and GPT are state-of-the-art models using attention mechanisms. ImageNet dataset contains millions of labeled images for computer vision tasks. The BLEU and ROUGE metrics are commonly used to evaluate machine translation systems."
+  },
+  {
+    "id": 3,
+    "x": -23.604473114013672,
+    "y": -145.25718688964844,
+    "label": "MODEL",
+    "entity": "GP",
+    "text_index": 0,
+    "sentence_id": 0,
+    "sentence_text": "The Transformer architecture has revolutionized natural language processing. BERT and GPT are state-of-the-art models using attention mechanisms. ImageNet dataset contains millions of labeled images for computer vision tasks. The BLEU and ROUGE metrics are commonly used to evaluate machine translation systems."
+  },
+  {
+    "id": 4,
+    "x": -64.4119644165039,
+    "y": -114.47049713134766,
+    "label": "MODEL",
+    "entity": "T",
+    "text_index": 0,
+    "sentence_id": 0,
+    "sentence_text": "The Transformer architecture has revolutionized natural language processing. BERT and GPT are state-of-the-art models using attention mechanisms. ImageNet dataset contains millions of labeled images for computer vision tasks. The BLEU and ROUGE metrics are commonly used to evaluate machine translation systems."
+  },
+  {
+    "id": 5,
+    "x": -38.055870056152344,
+    "y": 148.90512084960938,
+    "label": "TECHNIQUE",
+    "entity": "BLE",
+    "text_index": 0,
+    "sentence_id": 0,
+    "sentence_text": "The Transformer architecture has revolutionized natural language processing. BERT and GPT are state-of-the-art models using attention mechanisms. ImageNet dataset contains millions of labeled images for computer vision tasks. The BLEU and ROUGE metrics are commonly used to evaluate machine translation systems."
+  },
+  {
+    "id": 6,
+    "x": 42.11989974975586,
+    "y": 10.954864501953125,
+    "label": "TECHNIQUE",
+    "entity": "translation",
+    "text_index": 0,
+    "sentence_id": 0,
+    "sentence_text": "The Transformer architecture has revolutionized natural language processing. BERT and GPT are state-of-the-art models using attention mechanisms. ImageNet dataset contains millions of labeled images for computer vision tasks. The BLEU and ROUGE metrics are commonly used to evaluate machine translation systems."
+  },
+  {
+    "id": 7,
+    "x": 7.362560749053955,
+    "y": -8.70089340209961,
+    "label": "TECHNIQUE",
+    "entity": "Deep learning",
+    "text_index": 1,
+    "sentence_id": 1,
+    "sentence_text": "Deep learning techniques like Convolutional Neural Networks and Recurrent Neural Networks have achieved impressive results. The ResNet architecture won the ImageNet competition. Transfer learning with models like BERT provides excellent accuracy. Common applications include sentiment analysis and named entity recognition."
+  },
+  {
+    "id": 8,
+    "x": 3.6085522174835205,
+    "y": -31.673500061035156,
+    "label": "MODEL",
+    "entity": "Recurrent",
+    "text_index": 1,
+    "sentence_id": 1,
+    "sentence_text": "Deep learning techniques like Convolutional Neural Networks and Recurrent Neural Networks have achieved impressive results. The ResNet architecture won the ImageNet competition. Transfer learning with models like BERT provides excellent accuracy. Common applications include sentiment analysis and named entity recognition."
+  },
+  {
+    "id": 9,
+    "x": -21.5084228515625,
+    "y": -22.738069534301758,
+    "label": "MODEL",
+    "entity": "Res",
+    "text_index": 1,
+    "sentence_id": 1,
+    "sentence_text": "Deep learning techniques like Convolutional Neural Networks and Recurrent Neural Networks have achieved impressive results. The ResNet architecture won the ImageNet competition. Transfer learning with models like BERT provides excellent accuracy. Common applications include sentiment analysis and named entity recognition."
+  },
+  {
+    "id": 10,
+    "x": 22.778579711914062,
+    "y": -5.624319553375244,
+    "label": "TECHNIQUE",
+    "entity": "Transfer learning",
+    "text_index": 1,
+    "sentence_id": 1,
+    "sentence_text": "Deep learning techniques like Convolutional Neural Networks and Recurrent Neural Networks have achieved impressive results. The ResNet architecture won the ImageNet competition. Transfer learning with models like BERT provides excellent accuracy. Common applications include sentiment analysis and named entity recognition."
+  },
+  {
+    "id": 11,
+    "x": -23.553070068359375,
+    "y": -94.51716613769531,
+    "label": "MODEL",
+    "entity": "BERT",
+    "text_index": 1,
+    "sentence_id": 1,
+    "sentence_text": "Deep learning techniques like Convolutional Neural Networks and Recurrent Neural Networks have achieved impressive results. The ResNet architecture won the ImageNet competition. Transfer learning with models like BERT provides excellent accuracy. Common applications include sentiment analysis and named entity recognition."
+  },
+  {
+    "id": 12,
+    "x": -77.37059783935547,
+    "y": 110.26670837402344,
+    "label": "METRIC",
+    "entity": "accuracy",
+    "text_index": 1,
+    "sentence_id": 1,
+    "sentence_text": "Deep learning techniques like Convolutional Neural Networks and Recurrent Neural Networks have achieved impressive results. The ResNet architecture won the ImageNet competition. Transfer learning with models like BERT provides excellent accuracy. Common applications include sentiment analysis and named entity recognition."
+  },
+  {
+    "id": 13,
+    "x": -71.08722686767578,
+    "y": 124.5480728149414,
+    "label": "METRIC",
+    "entity": "Accuracy",
+    "text_index": 2,
+    "sentence_id": 2,
+    "sentence_text": "The Vision Transformer model applies attention mechanisms to image processing. YOLO is a popular object detection model. The CIFAR-10 dataset is widely used for benchmarking. Accuracy and F1-score are standard evaluation metrics in machine learning research."
+  },
+  {
+    "id": 14,
+    "x": -48.485843658447266,
+    "y": 135.67039489746094,
+    "label": "METRIC",
+    "entity": "F",
+    "text_index": 2,
+    "sentence_id": 2,
+    "sentence_text": "The Vision Transformer model applies attention mechanisms to image processing. YOLO is a popular object detection model. The CIFAR-10 dataset is widely used for benchmarking. Accuracy and F1-score are standard evaluation metrics in machine learning research."
+  },
+  {
+    "id": 15,
+    "x": -53.429805755615234,
+    "y": 102.6202621459961,
+    "label": "METRIC",
+    "entity": "score",
+    "text_index": 2,
+    "sentence_id": 2,
+    "sentence_text": "The Vision Transformer model applies attention mechanisms to image processing. YOLO is a popular object detection model. The CIFAR-10 dataset is widely used for benchmarking. Accuracy and F1-score are standard evaluation metrics in machine learning research."
+  },
+  {
+    "id": 16,
+    "x": 11.122918128967285,
+    "y": 14.643034934997559,
+    "label": "TECHNIQUE",
+    "entity": "learning",
+    "text_index": 2,
+    "sentence_id": 2,
+    "sentence_text": "The Vision Transformer model applies attention mechanisms to image processing. YOLO is a popular object detection model. The CIFAR-10 dataset is widely used for benchmarking. Accuracy and F1-score are standard evaluation metrics in machine learning research."
+  },
+  {
+    "id": 17,
+    "x": -19.709999084472656,
+    "y": -160.3267059326172,
+    "label": "MODEL",
+    "entity": "GP",
+    "text_index": 3,
+    "sentence_id": 3,
+    "sentence_text": "Large Language Models such as GPT-3 and PaLM have demonstrated remarkable capabilities. The Transformer-XL architecture improves upon standard Transformers. Word2Vec embeddings were pioneering in NLP technology. The SQuAD dataset revolutionized question answering evaluation."
+  },
+  {
+    "id": 18,
+    "x": -77.41839599609375,
+    "y": -123.13776397705078,
+    "label": "MODEL",
+    "entity": "T",
+    "text_index": 3,
+    "sentence_id": 3,
+    "sentence_text": "Large Language Models such as GPT-3 and PaLM have demonstrated remarkable capabilities. The Transformer-XL architecture improves upon standard Transformers. Word2Vec embeddings were pioneering in NLP technology. The SQuAD dataset revolutionized question answering evaluation."
+  },
+  {
+    "id": 19,
+    "x": 23.293476104736328,
+    "y": -119.33489227294922,
+    "label": "MODEL",
+    "entity": "PaLM",
+    "text_index": 3,
+    "sentence_id": 3,
+    "sentence_text": "Large Language Models such as GPT-3 and PaLM have demonstrated remarkable capabilities. The Transformer-XL architecture improves upon standard Transformers. Word2Vec embeddings were pioneering in NLP technology. The SQuAD dataset revolutionized question answering evaluation."
+  },
+  {
+    "id": 20,
+    "x": 32.92079162597656,
+    "y": -91.79186248779297,
+    "label": "MODEL",
+    "entity": "Transformer",
+    "text_index": 3,
+    "sentence_id": 3,
+    "sentence_text": "Large Language Models such as GPT-3 and PaLM have demonstrated remarkable capabilities. The Transformer-XL architecture improves upon standard Transformers. Word2Vec embeddings were pioneering in NLP technology. The SQuAD dataset revolutionized question answering evaluation."
+  },
+  {
+    "id": 21,
+    "x": 53.78467559814453,
+    "y": -78.37265014648438,
+    "label": "MODEL",
+    "entity": "Word",
+    "text_index": 3,
+    "sentence_id": 3,
+    "sentence_text": "Large Language Models such as GPT-3 and PaLM have demonstrated remarkable capabilities. The Transformer-XL architecture improves upon standard Transformers. Word2Vec embeddings were pioneering in NLP technology. The SQuAD dataset revolutionized question answering evaluation."
+  },
+  {
+    "id": 22,
+    "x": 54.35868453979492,
+    "y": 51.446773529052734,
+    "label": "TECHNIQUE",
+    "entity": "NL",
+    "text_index": 3,
+    "sentence_id": 3,
+    "sentence_text": "Large Language Models such as GPT-3 and PaLM have demonstrated remarkable capabilities. The Transformer-XL architecture improves upon standard Transformers. Word2Vec embeddings were pioneering in NLP technology. The SQuAD dataset revolutionized question answering evaluation."
+  }
+]

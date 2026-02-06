@@ -1,0 +1,42 @@
+[
+  {
+    "id": 0,
+    "x": 289.3883056640625,
+    "y": 123.64234924316406,
+    "label": "TECHNIQUE",
+    "entity": "Machine learning",
+    "text_index": 0,
+    "sentence_id": 0,
+    "sentence_text": "Decision Analytics Journal 7 (2023) 100230\nContents lists available at Science Direct Decision Analytics Journal journal homepage: A systematic review of Explainable Artificial Intelligence models and applications: Recent developments and future trends Saranya A.1, Subhashini R.∗\nSchool of Information Technology and Engineering, VIT University, Vellore, India A R T I C L E I N F O Keywords:\nArtificial Intelligence Machine learning Deep learning Explanation Explainable Artificial Intelligence Health Care A B S T R A C T Artificial Intelligence (AI) uses systems and machines to simulate human intelligence and solve common real-world problems."
+  },
+  {
+    "id": 1,
+    "x": 81.07090759277344,
+    "y": 174.26951599121094,
+    "label": "TECHNIQUE",
+    "entity": "Deep learning",
+    "text_index": 0,
+    "sentence_id": 0,
+    "sentence_text": "Decision Analytics Journal 7 (2023) 100230\nContents lists available at Science Direct Decision Analytics Journal journal homepage: A systematic review of Explainable Artificial Intelligence models and applications: Recent developments and future trends Saranya A.1, Subhashini R.∗\nSchool of Information Technology and Engineering, VIT University, Vellore, India A R T I C L E I N F O Keywords:\nArtificial Intelligence Machine learning Deep learning Explanation Explainable Artificial Intelligence Health Care A B S T R A C T Artificial Intelligence (AI) uses systems and machines to simulate human intelligence and solve common real-world problems."
+  },
+  {
+    "id": 2,
+    "x": 30.575441360473633,
+    "y": -34.757076263427734,
+    "label": "TECHNIQUE",
+    "entity": "Machine learning",
+    "text_index": 1,
+    "sentence_id": 1,
+    "sentence_text": "Machine learning and deep learning are Artificial intelligence technologies that use algorithms to predict outcomes more accurately without relying on human intervention. However, the opaque black box model and cumulative model complexity can be used to achieve."
+  },
+  {
+    "id": 3,
+    "x": 238.86814880371094,
+    "y": -85.38436126708984,
+    "label": "TECHNIQUE",
+    "entity": "deep learning",
+    "text_index": 1,
+    "sentence_id": 1,
+    "sentence_text": "Machine learning and deep learning are Artificial intelligence technologies that use algorithms to predict outcomes more accurately without relying on human intervention. However, the opaque black box model and cumulative model complexity can be used to achieve."
+  }
+]
