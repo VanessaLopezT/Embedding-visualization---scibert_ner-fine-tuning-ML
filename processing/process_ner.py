@@ -370,6 +370,17 @@ class SciBERTNERProcessor:
 
             if len(embeddings) < 2:
                 points = []
+                if len(embeddings) == 1:
+                    points.append({
+                        "id": 0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "label": labels[0],
+                        "entity": texts[0],
+                        "text_index": int(text_index[0]),
+                        "sentence_id": int(sentence_ids[0]),
+                        "sentence_text": str(sentence_texts[0]),
+                    })
             else:
                 scaler = StandardScaler()
                 emb_norm = scaler.fit_transform(embeddings)
