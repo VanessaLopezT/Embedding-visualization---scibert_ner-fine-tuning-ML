@@ -140,6 +140,24 @@ html, body {
   border-bottom: 2px solid #0d6efd;
 }
 
+.entity.application,
+.entity.APPLICATION {
+  color: #d63384;
+  border-bottom: 2px solid #d63384;
+}
+
+.entity.architecture,
+.entity.ARCHITECTURE {
+  color: #6f42c1;
+  border-bottom: 2px solid #6f42c1;
+}
+
+.entity.dataset,
+.entity.DATASET {
+  color: #fd7e14;
+  border-bottom: 2px solid #fd7e14;
+}
+
 .entity.metric,
 .entity.METRIC {
   color: #198754;
@@ -150,6 +168,12 @@ html, body {
 .entity.TECHNIQUE {
   color: #cc9000;
   border-bottom: 2px solid #ffc107;
+}
+
+.entity.technology,
+.entity.TECHNOLOGY {
+  color: #20c997;
+  border-bottom: 2px solid #20c997;
 }
 
 .entity:hover {
