@@ -286,6 +286,9 @@
     progressBar.style.width = "0%";
     progressLabel.textContent = "";
     if (entitiesInfo) entitiesInfo.textContent = "";
+    if (currentChart) {
+      requestAnimationFrame(() => currentChart.resize());
+    }
   }
 
   function showProgress(initialLabel = "Procesando...") {
@@ -293,6 +296,9 @@
     if (mainContainer) mainContainer.style.marginTop = "112px";
     progressBar.style.width = "10%";
     progressLabel.textContent = initialLabel;
+    if (currentChart) {
+      requestAnimationFrame(() => currentChart.resize());
+    }
   }
 
   if (progressClose) {
