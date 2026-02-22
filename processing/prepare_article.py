@@ -121,6 +121,12 @@ class ArticlePreprocessor:
     def _fix_pdf_spacing(self, text):
         """Arregla espaciado pobre de PDFs"""
         import re
+        # Corregir mojibake frecuente de PDFs
+        text = text.replace("Â©", "©").replace("Ã—", "x")
+        text = text.replace("â€œ", "\"").replace("â€", "\"")
+        text = text.replace("â€™", "'").replace("â€˜", "'")
+        text = text.replace("â€“", "-").replace("â€”", "-")
+        text = text.replace("â€¦", "...")
         # Normalizar caracteres raros/ligaduras comunes en PDFs
         text = text.replace("\u00ad", "")  # soft hyphen
         text = text.replace("\ufb01", "fi").replace("\ufb02", "fl")
@@ -311,6 +317,44 @@ class ArticlePreprocessor:
             cleaned.append(line)
         self.text = "\n".join(cleaned)
 
+    def remove_garbled_lines_pdf(self):
+        """Elimina lineas con texto corrupto tipico de OCR/encoding en PDFs."""
+        lines = self.text.splitlines()
+        cleaned = []
+        weird_chars = set("ÂÃÅÆÍ¿€‰")
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                cleaned.append(line)
+                continue
+
+            letters = [c for c in stripped if c.isalpha()]
+            letter_count = len(letters)
+            lower_count = sum(1 for c in letters if c.islower())
+            vowel_count = sum(1 for c in letters if c.lower() in "aeiou")
+            weird_count = sum(1 for c in stripped if c in weird_chars)
+            non_ascii_count = sum(1 for c in stripped if ord(c) > 127)
+
+            lower_ratio = (lower_count / letter_count) if letter_count else 1.0
+            vowel_ratio = (vowel_count / letter_count) if letter_count else 1.0
+            non_ascii_ratio = (non_ascii_count / len(stripped)) if stripped else 0.0
+            weird_ratio = (weird_count / len(stripped)) if stripped else 0.0
+            noisy_tokens = re.findall(r"\b[A-Z0-9]{6,}\b", stripped)
+
+            # Caso 1: bloques largos casi todo en "mayusculas cifradas"
+            looks_ciphered = letter_count >= 25 and lower_ratio < 0.18 and vowel_ratio < 0.22
+            # Caso 2: mojibake fuerte (Â¿, Ã€, Å... etc.)
+            looks_mojibake = (weird_ratio > 0.08 and len(stripped) >= 20) or (non_ascii_ratio > 0.25 and len(stripped) >= 20)
+            # Caso 3: lineas con varios tokens "codificados" (ej. 7L]KRR... QXPEHU...)
+            looks_encoded_tokens = len(noisy_tokens) >= 2 and len(stripped) >= 20 and lower_ratio < 0.45
+
+            if looks_ciphered or looks_mojibake or looks_encoded_tokens:
+                continue
+
+            cleaned.append(line)
+
+        self.text = "\n".join(cleaned)
+
     def remove_toc_lines_pdf(self):
         """Elimina líneas de tabla de contenidos con líderes de puntos y números de página."""
         lines = self.text.splitlines()
@@ -421,6 +465,7 @@ class ArticlePreprocessor:
             self.remove_pdf_boilerplate()
             self.remove_toc_lines_pdf()
             self.remove_pdf_line_noise()
+            self.remove_garbled_lines_pdf()
             self.remove_references()
             self.remove_references_anywhere_pdf()
             self.remove_urls()

@@ -130,9 +130,11 @@
   <div id="resizer"></div>
 
   <div id="text-panel" style="height: 100%; overflow-y: auto;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-      <h2>Texto Analizado</h2>
-      <span id="data-source" style="font-size: 12px; color: #999;">Datos de ejemplo</span>
+    <div style="margin-bottom: 15px;">
+      <h2 style="text-align:center; margin-bottom: 8px;">Texto Analizado</h2>
+      <div style="text-align:center;">
+        <span id="data-source" style="font-size: 12px; color: #999;">Datos de ejemplo · Párrafos con entidades: - · Párrafos totales: - · Entidades: -</span>
+      </div>
     </div>
     <div id="text-content"></div>
   </div>
@@ -158,6 +160,24 @@
   const entitiesSummary = document.getElementById("entities-summary");
   const progressClose = document.getElementById("progress-close");
   const mainContainer = document.getElementById("container");
+  const dataSourceEl = document.getElementById("data-source");
+
+  function updateDataSourceLabel(source, data, totalParagraphs = null) {
+    const entities = Array.isArray(data) ? data.length : 0;
+    const paragraphsWithEntities = Array.isArray(data)
+      ? new Set(data.map(p => p.sentence_id)).size
+      : 0;
+    const isEmpty = entities === 0;
+    dataSourceEl.style.color = isEmpty ? "#c44d56" : "#999";
+    if (source === "article") {
+      const totalText = typeof totalParagraphs === "number"
+        ? totalParagraphs
+        : "-";
+      dataSourceEl.textContent = `Datos del artículo · Párrafos con entidades: ${paragraphsWithEntities} · Párrafos totales: ${totalText} · Entidades: ${entities}`;
+    } else {
+      dataSourceEl.textContent = `Datos de ejemplo · Párrafos con entidades: ${paragraphsWithEntities} · Párrafos totales: ${paragraphsWithEntities} · Entidades: ${entities}`;
+    }
+  }
 
   function hideProgress() {
     progressContainer.style.display = "none";
@@ -181,16 +201,24 @@
   async function loadAndRenderData(source, articleId = null) {
     try {
       let data;
+      let totalParagraphs = null;
       if (source === "article" && articleId) {
         const response = await fetch(config.tsneUrl(articleId));
         if (!response.ok) throw new Error("No article data available");
         const result = await response.json();
         data = result.data;
-        document.getElementById("data-source").textContent = "Datos del artículo";
+        try {
+          const metaResponse = await fetch(config.metaUrl(articleId));
+          if (metaResponse.ok) {
+            const meta = await metaResponse.json();
+            if (meta && meta.progress && typeof meta.progress.total === "number") {
+              totalParagraphs = meta.progress.total;
+            }
+          }
+        } catch (_) {}
       } else {
         const result = await loadTSNEData(config.exampleUrl);
         data = result.data;
-        document.getElementById("data-source").textContent = "Datos de ejemplo";
       }
 
       const chartDom = document.getElementById("tsne-chart");
@@ -201,6 +229,7 @@
       currentChart = echarts.init(chartDom);
       initTSNEChart(currentChart, data);
       renderText(data, document.getElementById("text-content"));
+      updateDataSourceLabel(source, data, totalParagraphs);
       if (entitiesSummary) {
         entitiesSummary.textContent = `Entidades: ${data.length}`;
       }
@@ -407,14 +436,14 @@
           document.getElementById("article-select").value = articleId;
           await loadAndRenderData("article", articleId);
           isUploadInProgress = false;
-          setTimeout(hideProgress, 1200);
+          hideProgress();
           alert(`Artículo procesado correctamente: ${fileName}`);
           break;
         }
 
         if (article.status === "failed") {
           isUploadInProgress = false;
-          setTimeout(hideProgress, 1200);
+          hideProgress();
           alert(`Error al procesar: ${article.error || "Revisa la consola del servidor"}`);
           break;
         }
