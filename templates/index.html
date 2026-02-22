@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
@@ -154,6 +154,7 @@
   };
 
   let currentChart = null;
+  let isUploadInProgress = false;
   const entitiesSummary = document.getElementById("entities-summary");
   const progressClose = document.getElementById("progress-close");
   const mainContainer = document.getElementById("container");
@@ -240,7 +241,9 @@
 
   // Selector
   document.getElementById("article-select").addEventListener("change", async (e) => {
-    hideProgress();
+    if (!isUploadInProgress) {
+      hideProgress();
+    }
     const value = e.target.value;
     if (value === "example") {
       await loadAndRenderData("example");
@@ -292,6 +295,7 @@
     if (!file) return;
 
     window.scrollTo({ top: 0, behavior: "smooth" });
+    isUploadInProgress = true;
     uploadBtn.disabled = true;
     loadingIndicator.classList.add("active");
     loadingIndicator.textContent = "Procesando...";
@@ -312,9 +316,13 @@
         await refreshArticleList();
         await pollArticleStatus(result.article.id, file.name);
       } else {
+        isUploadInProgress = false;
+        hideProgress();
         alert(`Error: ${result.error || "No se pudo procesar el artículo"}`);
       }
     } catch (error) {
+      isUploadInProgress = false;
+      hideProgress();
       console.error("Error:", error);
       alert("Error al procesar artículo: " + error.message);
     } finally {
@@ -398,12 +406,14 @@
           await refreshArticleList(articleId);
           document.getElementById("article-select").value = articleId;
           await loadAndRenderData("article", articleId);
+          isUploadInProgress = false;
           setTimeout(hideProgress, 1200);
           alert(`Artículo procesado correctamente: ${fileName}`);
           break;
         }
 
         if (article.status === "failed") {
+          isUploadInProgress = false;
           setTimeout(hideProgress, 1200);
           alert(`Error al procesar: ${article.error || "Revisa la consola del servidor"}`);
           break;
@@ -415,8 +425,10 @@
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
-    // Mantener visible la informaciÃ³n final de pÃ¡rrafos y entidades
-    hideProgress();
+    // Mantener visible la información final de párrafos y entidades
+    if (!isUploadInProgress) {
+      hideProgress();
+    }
   }
 
   function formatEta(seconds) {
@@ -429,3 +441,4 @@
 
 </body>
 </html>
+
