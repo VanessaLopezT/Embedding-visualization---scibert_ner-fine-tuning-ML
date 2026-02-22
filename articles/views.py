@@ -123,6 +123,20 @@ def get_article_meta(request, article_id):
 
 
 @require_GET
+def get_article_cleaned_text(request, article_id):
+    paths = _resolve_article_paths(article_id)
+    cleaned_path = paths.get("cleaned_text")
+    if not cleaned_path or not cleaned_path.exists():
+        return JsonResponse({"error": "No cleaned text available"}, status=404)
+    try:
+        with open(cleaned_path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except Exception:
+        return JsonResponse({"error": "No cleaned text available"}, status=404)
+    return JsonResponse({"text": text, "source": "article"})
+
+
+@require_GET
 def get_example_tsne(request):
     example_path = Path(settings.BASE_DIR) / "web" / "tsne_data.json"
     if not example_path.exists():

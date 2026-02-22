@@ -8,26 +8,29 @@
 
 let entityMap = {};
 
-export function renderText(data, container, externalTitle = null) {
+export function renderText(data, container, externalTitle = null, options = {}) {
+  const mode = options.mode === "all" ? "all" : "entities";
+  const cleanedText = typeof options.cleanedText === "string" ? options.cleanedText : "";
   container.innerHTML = "";
   entityMap = {};
   let titleRendered = false;
 
-  const sentences = {};
+  const sentences = new Map();
 
   data.forEach(d => {
-    if (!sentences[d.sentence_id]) {
-      sentences[d.sentence_id] = {
+    if (!sentences.has(d.sentence_id)) {
+      sentences.set(d.sentence_id, {
         text: d.sentence_text,
         entities: []
-      };
+      });
     }
-    sentences[d.sentence_id].entities.push(d);
+    sentences.get(d.sentence_id).entities.push(d);
     entityMap[d.id] = d;
   });
 
   let titleSentence = null;
-  Object.values(sentences).forEach(sentence => {
+  const sentenceList = Array.from(sentences.values());
+  sentenceList.forEach(sentence => {
     const text = sentence.text || "";
     if (!titleSentence && /^TITLE:\s*/i.test(text.trim())) {
       titleSentence = sentence;
@@ -77,7 +80,18 @@ export function renderText(data, container, externalTitle = null) {
     titleRendered = true;
   }
 
-  Object.values(sentences).forEach(sentence => {
+  if (mode === "all" && cleanedText) {
+    const paragraphs = extractBodyParagraphsFromCleanedText(cleanedText);
+    paragraphs.forEach(paragraph => {
+      const p = document.createElement("p");
+      p.textContent = paragraph;
+      container.appendChild(p);
+    });
+    bindTextInteractions();
+    return;
+  }
+
+  sentenceList.forEach(sentence => {
     const text = sentence.text || "";
     const isTitle = /^TITLE:\s*/i.test(text.trim());
     if (isTitle) {
@@ -176,4 +190,15 @@ function sanitizeTitle(title) {
   t = t.replace(/\bAbstract\b[\s\S]*$/i, "").trim();
   t = t.replace(/\s{2,}/g, " ").trim();
   return t;
+}
+
+function extractBodyParagraphsFromCleanedText(cleanedText) {
+  const text = String(cleanedText || "").trim();
+  if (!text) return [];
+
+  return text
+    .split(/\r?\n\s*\r?\n/)
+    .map(p => p.trim())
+    .filter(Boolean)
+    .filter(p => !/^TITLE:\s*/i.test(p));
 }

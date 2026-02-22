@@ -12,6 +12,7 @@ urlpatterns = [
     path("api/articles/<str:article_id>/tsne", views.get_article_tsne, name="get_article_tsne"),
     path("api/articles/<str:article_id>/ner", views.get_article_ner, name="get_article_ner"),
     path("api/articles/<str:article_id>/meta", views.get_article_meta, name="get_article_meta"),
+    path("api/articles/<str:article_id>/cleaned-text", views.get_article_cleaned_text, name="get_article_cleaned_text"),
     path("api/example/tsne", views.get_example_tsne, name="get_example_tsne"),
 ]
 

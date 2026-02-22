@@ -87,6 +87,41 @@
       color: #333;
       min-width: 220px;
     }
+    .data-toggle-btn {
+      font-size: 12px;
+      border: 1px solid #d0d7de;
+      background: #f8f9fa;
+      color: #495057;
+      cursor: pointer;
+      padding: 2px 8px;
+      border-radius: 999px;
+      transition: all 0.15s ease;
+      line-height: 1.35;
+    }
+    .data-toggle-btn:hover:not(:disabled) {
+      background: #eef4ff;
+      border-color: #9ec5fe;
+      color: #0a58ca;
+      transform: translateY(-1px);
+    }
+    .data-toggle-btn:focus-visible {
+      outline: 2px solid rgba(13, 110, 253, 0.35);
+      outline-offset: 1px;
+    }
+    .data-toggle-btn.active {
+      background: #e7f1ff;
+      border-color: #0d6efd;
+      color: #0d6efd;
+      font-weight: 600;
+      box-shadow: 0 1px 3px rgba(13, 110, 253, 0.18);
+    }
+    .data-toggle-btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+      background: #f2f3f5;
+      border-color: #e5e7eb;
+      color: #9aa0a6;
+    }
     @keyframes fade-pulse {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.6; }
@@ -133,7 +168,14 @@
     <div style="margin-bottom: 15px;">
       <h2 style="text-align:center; margin-bottom: 8px;">Texto Analizado</h2>
       <div style="text-align:center;">
-        <span id="data-source" style="font-size: 12px; color: #999;">Datos de ejemplo · Párrafos con entidades: - · Párrafos totales: - · Entidades: -</span>
+        <span id="data-source" style="font-size: 12px; color: #999;">
+          <span id="data-source-label">Datos de ejemplo</span> ·
+          <button id="btn-entities-only" class="data-toggle-btn active" type="button">Párrafos con entidades: -</button>
+          ·
+          <button id="btn-all-paragraphs" class="data-toggle-btn" type="button">Párrafos totales: -</button>
+          ·
+          <span id="entities-count">Entidades: -</span>
+        </span>
       </div>
     </div>
     <div id="text-content"></div>
@@ -143,44 +185,99 @@
 </div>
 
 <script type="module">
-  import { loadTSNEData } from "{% static 'js/dataLoader.js' %}?v=20260222i";
-  import { initTSNEChart } from "{% static 'js/tsneChart.js' %}?v=20260222i";
-  import { renderText } from "{% static 'js/textPanel.js' %}?v=20260222i";
+  import { loadTSNEData } from "{% static 'js/dataLoader.js' %}?v=20260222j";
+  import { initTSNEChart } from "{% static 'js/tsneChart.js' %}?v=20260222j";
+  import { renderText } from "{% static 'js/textPanel.js' %}?v=20260222j";
 
   const config = {
     exampleUrl: "/api/example/tsne",
     listUrl: "/api/articles",
     uploadUrl: "/api/articles/upload",
     tsneUrl: (id) => `/api/articles/${id}/tsne`,
-    metaUrl: (id) => `/api/articles/${id}/meta`
+    metaUrl: (id) => `/api/articles/${id}/meta`,
+    cleanedTextUrl: (id) => `/api/articles/${id}/cleaned-text`
   };
 
   let currentChart = null;
   let isUploadInProgress = false;
+  const textContentEl = document.getElementById("text-content");
   const entitiesSummary = document.getElementById("entities-summary");
   const progressClose = document.getElementById("progress-close");
   const mainContainer = document.getElementById("container");
   const dataSourceEl = document.getElementById("data-source");
+  const dataSourceLabelEl = document.getElementById("data-source-label");
+  const btnEntitiesOnly = document.getElementById("btn-entities-only");
+  const btnAllParagraphs = document.getElementById("btn-all-paragraphs");
+  const entitiesCountEl = document.getElementById("entities-count");
+
+  const panelState = {
+    source: "example",
+    articleId: null,
+    mode: "entities",
+    data: [],
+    totalParagraphs: null,
+    articleTitle: null,
+    cleanedText: ""
+  };
+
+  function getParagraphsWithEntitiesCount(data) {
+    if (!Array.isArray(data)) return 0;
+    return new Set(
+      data
+        .filter(p => !String(p.sentence_text || "").trim().match(/^TITLE:\s*/i))
+        .map(p => p.sentence_id)
+    ).size;
+  }
+
+  function extractBodyParagraphs(cleanedText) {
+    const text = String(cleanedText || "").trim();
+    if (!text) return [];
+    return text
+      .split(/\r?\n\s*\r?\n/)
+      .map(p => p.trim())
+      .filter(Boolean)
+      .filter(p => !/^TITLE:\s*/i.test(p));
+  }
 
   function updateDataSourceLabel(source, data, totalParagraphs = null) {
     const entities = Array.isArray(data) ? data.length : 0;
-    const paragraphsWithEntities = Array.isArray(data)
-      ? new Set(
-          data
-            .filter(p => !String(p.sentence_text || "").trim().match(/^TITLE:\s*/i))
-            .map(p => p.sentence_id)
-        ).size
-      : 0;
+    const paragraphsWithEntities = getParagraphsWithEntitiesCount(data);
     const isEmpty = entities === 0;
-    dataSourceEl.style.color = isEmpty ? "#c44d56" : "#999";
-    if (source === "article") {
-      const totalText = typeof totalParagraphs === "number"
-        ? totalParagraphs
-        : "-";
-      dataSourceEl.textContent = `Datos del artículo · Párrafos con entidades: ${paragraphsWithEntities} · Párrafos totales: ${totalText} · Entidades: ${entities}`;
-    } else {
-      dataSourceEl.textContent = `Datos de ejemplo · Párrafos con entidades: ${paragraphsWithEntities} · Párrafos totales: ${paragraphsWithEntities} · Entidades: ${entities}`;
+    const baseColor = isEmpty ? "#c44d56" : "#999";
+    dataSourceEl.style.color = baseColor;
+    if (entitiesCountEl) {
+      entitiesCountEl.textContent = `Entidades: ${entities}`;
+      entitiesCountEl.style.color = baseColor;
     }
+    if (btnEntitiesOnly) {
+      btnEntitiesOnly.textContent = `Párrafos con entidades: ${paragraphsWithEntities}`;
+      btnEntitiesOnly.classList.toggle("active", panelState.mode === "entities");
+    }
+    if (btnAllParagraphs) {
+      const totalText = typeof totalParagraphs === "number" ? totalParagraphs : "-";
+      btnAllParagraphs.textContent = `Párrafos totales: ${totalText}`;
+      btnAllParagraphs.classList.toggle("active", panelState.mode === "all");
+    }
+    if (source === "article") {
+      if (dataSourceLabelEl) dataSourceLabelEl.textContent = "Datos del artículo";
+    } else {
+      if (dataSourceLabelEl) dataSourceLabelEl.textContent = "Datos de ejemplo";
+      if (btnAllParagraphs) {
+        btnAllParagraphs.disabled = true;
+      }
+      return;
+    }
+    if (btnAllParagraphs) {
+      btnAllParagraphs.disabled = false;
+    }
+  }
+
+  function renderCurrentTextPanel() {
+    renderText(panelState.data, textContentEl, panelState.articleTitle, {
+      mode: panelState.mode,
+      cleanedText: panelState.cleanedText
+    });
+    updateDataSourceLabel(panelState.source, panelState.data, panelState.totalParagraphs);
   }
 
   function hideProgress() {
@@ -207,13 +304,17 @@
       let data;
       let totalParagraphs = null;
       let articleTitle = null;
+      let cleanedText = "";
       if (source === "article" && articleId) {
         const response = await fetch(config.tsneUrl(articleId));
         if (!response.ok) throw new Error("No article data available");
         const result = await response.json();
         data = result.data;
         try {
-          const metaResponse = await fetch(config.metaUrl(articleId));
+          const [metaResponse, cleanedTextResponse] = await Promise.all([
+            fetch(config.metaUrl(articleId)),
+            fetch(config.cleanedTextUrl(articleId))
+          ]);
           if (metaResponse.ok) {
             const meta = await metaResponse.json();
             if (meta && meta.progress && typeof meta.progress.total === "number") {
@@ -223,10 +324,18 @@
               articleTitle = meta.title;
             }
           }
+          if (cleanedTextResponse.ok) {
+            const cleanedPayload = await cleanedTextResponse.json();
+            if (cleanedPayload && typeof cleanedPayload.text === "string") {
+              cleanedText = cleanedPayload.text;
+              totalParagraphs = extractBodyParagraphs(cleanedText).length;
+            }
+          }
         } catch (_) {}
       } else {
         const result = await loadTSNEData(config.exampleUrl);
         data = result.data;
+        totalParagraphs = getParagraphsWithEntitiesCount(data);
       }
 
       const chartDom = document.getElementById("tsne-chart");
@@ -236,8 +345,14 @@
 
       currentChart = echarts.init(chartDom);
       initTSNEChart(currentChart, data);
-      renderText(data, document.getElementById("text-content"), articleTitle);
-      updateDataSourceLabel(source, data, totalParagraphs);
+      panelState.source = source;
+      panelState.articleId = articleId;
+      panelState.mode = "entities";
+      panelState.data = Array.isArray(data) ? data : [];
+      panelState.totalParagraphs = totalParagraphs;
+      panelState.articleTitle = articleTitle;
+      panelState.cleanedText = cleanedText;
+      renderCurrentTextPanel();
       if (entitiesSummary) {
         entitiesSummary.textContent = `Entidades: ${data.length}`;
       }
@@ -275,6 +390,21 @@
   // Initial load
   await refreshArticleList("example");
   await loadAndRenderData("example");
+
+  if (btnEntitiesOnly) {
+    btnEntitiesOnly.addEventListener("click", () => {
+      panelState.mode = "entities";
+      renderCurrentTextPanel();
+    });
+  }
+
+  if (btnAllParagraphs) {
+    btnAllParagraphs.addEventListener("click", () => {
+      if (panelState.source !== "article") return;
+      panelState.mode = "all";
+      renderCurrentTextPanel();
+    });
+  }
 
   // Selector
   document.getElementById("article-select").addEventListener("change", async (e) => {
