@@ -40,6 +40,10 @@ def process_article(paths, checkpoint="checkpoint-90"):
         result = _run_streamed("prepare_article.py", prep_command)
         if result != 0:
             raise RuntimeError("Error ejecutando prepare_article.py (revisa la salida en consola).")
+        if not paths.cleaned_text.exists():
+            raise RuntimeError("prepare_article.py no genero cleaned_text.txt para el PDF.")
+        if paths.cleaned_text.stat().st_size == 0:
+            raise RuntimeError("prepare_article.py genero cleaned_text.txt vacio para el PDF.")
         input_for_ner = paths.cleaned_text
     elif source_ext == ".txt":
         # Mantener un cleaned_text consistente para TXT (copia directa)

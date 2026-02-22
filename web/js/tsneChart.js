@@ -178,6 +178,8 @@ export function initTSNEChart(chart, data) {
   chart.setOption(option);
 
   // Event listener para resaltar en el panel cuando se hace hover sobre un punto
+
+ // Se asume que cada punto tiene un atributo 'id' que corresponde a un elemento en el panel de texto
   chart.on("mouseover", (params) => {
     if (params.data && params.data.id !== undefined) {
       highlightEntityInPanel(params.data.id);
@@ -190,7 +192,7 @@ export function initTSNEChart(chart, data) {
 
   window.addEventListener("resize", () => chart.resize());
 }
-
+// Función para resaltar la entidad correspondiente en el panel de texto al hacer hover sobre un punto
 function highlightEntityInPanel(id) {
   const entityEl = document.querySelector(`[data-id="${id}"]`);
   if (entityEl) {
@@ -213,7 +215,7 @@ export function createTSNEChart(domElement, data) {
   const chart = echarts.init(domElement);
   initTSNEChart(chart, data);
 }
-
+// Función para resaltar un punto específico en la gráfica t-SNE dado su ID (usado desde el panel de texto)
 export function highlightPoint(id) {
   if (!globalChart) return;
   
