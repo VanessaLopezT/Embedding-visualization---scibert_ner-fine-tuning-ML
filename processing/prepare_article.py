@@ -21,6 +21,8 @@ class ArticlePreprocessor:
     def __init__(self):
         self.text = ""
         self.source_type = None
+        self.pdf_title_hint = None
+        self.first_page_text_raw = None
         self.stats = {
             "pages": None,
             "chars_before": 0,
@@ -77,11 +79,19 @@ class ArticlePreprocessor:
                     reader_name = "PyPDF2"
                 
                 reader = PdfReader(file_path)
+                meta = getattr(reader, "metadata", None)
+                if meta:
+                    try:
+                        self.pdf_title_hint = (meta.get("/Title") or "").strip() or None
+                    except Exception:
+                        self.pdf_title_hint = None
                 text_parts = []
                 
                 for page_num, page in enumerate(reader.pages):
                     text = page.extract_text()
                     if text:
+                        if page_num == 0:
+                            self.first_page_text_raw = text
                         # Limpiar espacios pegados
                         text = self._fix_pdf_spacing(text)
                         text_parts.append(text)
@@ -97,10 +107,17 @@ class ArticlePreprocessor:
                 import pdfplumber
                 
                 with pdfplumber.open(file_path) as pdf:
+                    try:
+                        meta = getattr(pdf, "metadata", None) or {}
+                        self.pdf_title_hint = (meta.get("Title") or meta.get("title") or "").strip() or None
+                    except Exception:
+                        self.pdf_title_hint = None
                     text_parts = []
                     for page in pdf.pages:
                         page_text = page.extract_text()
                         if page_text:
+                            if self.first_page_text_raw is None:
+                                self.first_page_text_raw = page_text
                             page_text = self._fix_pdf_spacing(page_text)
                             text_parts.append(page_text)
                     
@@ -122,11 +139,26 @@ class ArticlePreprocessor:
         """Arregla espaciado pobre de PDFs"""
         import re
         # Corregir mojibake frecuente de PDFs
-        text = text.replace("Â©", "©").replace("Ã—", "x")
-        text = text.replace("â€œ", "\"").replace("â€", "\"")
-        text = text.replace("â€™", "'").replace("â€˜", "'")
-        text = text.replace("â€“", "-").replace("â€”", "-")
-        text = text.replace("â€¦", "...")
+        replacements = {
+            "Â©": "©",
+            "Ã—": "x",
+            "Ã¾": " ",
+            "â€œ": "\"",
+            "â€": "\"",
+            "â€™": "'",
+            "â€˜": "'",
+            "â€“": "-",
+            "â€”": "-",
+            "â€¦": "...",
+            "Â±": "+/-",
+            "Â¼": "1/4",
+            "Â½": "1/2",
+            "Â¾": "3/4",
+            "Â·": " ",
+            "Â": "",
+        }
+        for src, dst in replacements.items():
+            text = text.replace(src, dst)
         # Normalizar caracteres raros/ligaduras comunes en PDFs
         text = text.replace("\u00ad", "")  # soft hyphen
         text = text.replace("\ufb01", "fi").replace("\ufb02", "fl")
@@ -161,6 +193,7 @@ class ArticlePreprocessor:
 
     def _normalize_pdf_text(self):
         """Normaliza texto de PDF para reducir tokens inflados."""
+        self.text = self.text.replace("Â", "")
         # Remover caracteres de control invisibles
         self.text = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", " ", self.text)
         # Colapsar repeticiones largas de símbolos
@@ -168,6 +201,294 @@ class ArticlePreprocessor:
         self.text = re.sub(r"[=]{3,}", " ", self.text)
         # Compactar espacios
         self.text = re.sub(r"[ \t]{2,}", " ", self.text)
+
+    def extract_pdf_title(self):
+        """Extrae un título probable desde las primeras líneas del PDF."""
+        lines = [ln.strip() for ln in self.text.splitlines() if ln.strip()]
+        if not lines:
+            return None
+
+        ignored_starts = (
+            "article info", "keywords", "abstract", "contents",
+            "received", "accepted", "available online"
+        )
+
+        def is_boilerplate(line):
+            low = line.lower()
+            if any(low.startswith(p) for p in ignored_starts):
+                return True
+            blocked = (
+                "journal homepage", "contents lists available", "sciencedirect",
+                "doi", "www.", "http://", "https://", "article history",
+                "department of", "school of", "university", "laboratory", "issn",
+                "lab invest"
+            )
+            return any(tok in low for tok in blocked)
+
+        def looks_like_title_line(line):
+            low = line.lower()
+            if is_boilerplate(line):
+                return False
+            if " abstract " in f" {low} " or low.startswith("abstract "):
+                return False
+            if re.search(r"\bA\W*B\W*S\W*T\W*R\W*A\W*C\W*T\b", line, flags=re.IGNORECASE):
+                return False
+            if " keyword" in low:
+                return False
+            if "fig." in low or "fig.." in low:
+                return False
+            if len(line) < 20:
+                return False
+            if len(line) > 220:
+                return False
+            if line.endswith(":"):
+                return False
+            if "," in line and line.count(",") >= 2:
+                # Suele ser lista de autores/afiliaciones.
+                return False
+            if sum(c.isalpha() for c in line) < 12:
+                return False
+            if len(line.split()) < 4:
+                return False
+            return True
+
+        def looks_like_author_line(line):
+            low = line.lower()
+            if is_boilerplate(line):
+                return False
+            if any(tok in low for tok in ("department of", "school of", "university", "institute", "laboratory")):
+                return False
+            # Nombres propios + separadores típicos de autoría.
+            name_chunks = len(re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z]\.)?", line))
+            has_author_marks = ("," in line) or ("*" in line) or ("∗" in line) or (" et al" in low)
+            return name_chunks >= 2 and has_author_marks
+
+        def is_affiliation_line(line):
+            low = line.lower()
+            keys = (
+                "department of", "school of", "university", "institute", "laboratory",
+                "hospital", "faculty of", "college of"
+            )
+            return any(k in low for k in keys)
+
+        # Heurística principal: título seguido por autores (en la línea siguiente
+        # o la subsiguiente si el título viene partido en dos líneas).
+        candidate = None
+        head = lines[:140]
+
+        # Caso común Elsevier/ScienceDirect: cabecera de revista y luego título + autores.
+        header_idx = None
+        for i, line in enumerate(head):
+            low = line.lower()
+            if "journal homepage" in low or "contents lists available" in low or "sciencedirect" in low:
+                header_idx = i
+                break
+        if header_idx is not None:
+            for i in range(header_idx + 1, min(len(head), header_idx + 25)):
+                line = head[i]
+                if not looks_like_title_line(line):
+                    continue
+                if i + 1 < len(head) and looks_like_author_line(head[i + 1]):
+                    candidate = line
+                    break
+                if i + 2 < len(head):
+                    maybe_cont = head[i + 1]
+                    if looks_like_title_line(maybe_cont) and looks_like_author_line(head[i + 2]):
+                        candidate = f"{line} {maybe_cont}"
+                        break
+
+        # Regla general: tomar el bloque justo antes de autores.
+        if not candidate:
+            author_idx = None
+            for i, line in enumerate(head[:90]):
+                if looks_like_author_line(line):
+                    author_idx = i
+                    break
+            if author_idx is not None and author_idx > 0:
+                block = []
+                j = author_idx - 1
+                while j >= 0 and len(block) < 4:
+                    cur = head[j].strip()
+                    low = cur.lower()
+                    if not cur:
+                        break
+                    if is_boilerplate(cur):
+                        break
+                    if looks_like_author_line(cur):
+                        break
+                    if is_affiliation_line(cur):
+                        break
+                    if "keyword" in low or "abstract" in low:
+                        break
+                    block.append(cur)
+                    j -= 1
+                block.reverse()
+                if block:
+                    if re.match(r"^(review|original|research)\s+article$", block[0], flags=re.IGNORECASE):
+                        block = block[1:]
+                if block:
+                    candidate = " ".join(block)
+
+        for i, line in enumerate(head):
+            if candidate:
+                break
+            if not looks_like_title_line(line):
+                continue
+
+            if i + 1 < len(head) and looks_like_author_line(head[i + 1]):
+                candidate = line
+                break
+
+            if i + 2 < len(head):
+                maybe_cont = head[i + 1]
+                if looks_like_title_line(maybe_cont) and looks_like_author_line(head[i + 2]):
+                    candidate = f"{line} {maybe_cont}"
+                    break
+
+        # Fallback conservador.
+        if not candidate:
+            for line in lines[:25]:
+                if looks_like_title_line(line) and len(line.split()) <= 25:
+                    candidate = line
+                    break
+
+        if not candidate:
+            return None
+
+        # Quitar prefijos de tipo de artículo.
+        candidate = re.sub(r"^(Review Article|Original Article|Research Article)\s*", "", candidate, flags=re.IGNORECASE)
+        # Si quedó pegado al bloque de abstract, cortar antes.
+        candidate = re.sub(r"\bA\s*B\s*S\s*T\s*R\s*A\s*C\s*T\b[\s\S]*$", "", candidate, flags=re.IGNORECASE).strip()
+        candidate = re.sub(r"\bAbstract\b[\s\S]*$", "", candidate, flags=re.IGNORECASE).strip()
+        # Quitar cola típica de autor al final del título (ej. "David Y..").
+        candidate = re.sub(r"\s+[A-Z][a-z]+\s+[A-Z]\.\.?$", "", candidate).strip()
+        # Limpieza básica final.
+        candidate = re.sub(r"\s{2,}", " ", candidate).strip(" -:\t")
+
+        return candidate if len(candidate) >= 12 else None
+
+    def extract_title_from_first_page_header(self):
+        """Extrae título usando la cabecera típica de la primera página (ScienceDirect/Elsevier)."""
+        if not self.first_page_text_raw:
+            return None
+
+        lines = [ln.strip() for ln in self.first_page_text_raw.splitlines() if ln.strip()]
+        if not lines:
+            return None
+
+        def is_header_line(line):
+            low = line.lower()
+            return (
+                "contents lists available" in low
+                or "sciencedirect" in low
+                or "journal homepage" in low
+                or low.endswith("journal")
+            )
+
+        def looks_like_author(line):
+            low = line.lower()
+            if any(tok in low for tok in ("department of", "school of", "university", "institute", "laboratory")):
+                return False
+            name_chunks = len(re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z]\.)?", line))
+            has_marks = ("," in line) or ("*" in line) or ("∗" in line)
+            return name_chunks >= 2 and has_marks
+
+        anchor = None
+        for i, line in enumerate(lines[:35]):
+            if is_header_line(line):
+                anchor = i
+        if anchor is None:
+            return None
+
+        author_idx = None
+        for j in range(anchor + 1, min(len(lines), anchor + 30)):
+            if looks_like_author(lines[j]):
+                author_idx = j
+                break
+        if author_idx is None or author_idx <= anchor + 1:
+            return None
+
+        title_lines = []
+        for k in range(anchor + 1, author_idx):
+            ln = lines[k]
+            low = ln.lower()
+            if "journal homepage" in low or "contents lists available" in low or "sciencedirect" in low:
+                continue
+            if "abstract" in low:
+                continue
+            if "keyword" in low:
+                continue
+            if len(ln) < 8:
+                continue
+            title_lines.append(ln)
+
+        if not title_lines:
+            return None
+
+        title = " ".join(title_lines[:3]).strip()
+        title = self.normalize_title_text(title)
+        return title
+
+    def normalize_title_text(self, title):
+        if not title:
+            return None
+        cleaned = str(title).strip()
+        cleaned = re.sub(r"^(Review Article|Original Article|Research Article)\s*", "", cleaned, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(r"\bA\W*B\W*S\W*T\W*R\W*A\W*C\W*T\b[\s\S]*$", "", cleaned, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(r"\bAbstract\b[\s\S]*$", "", cleaned, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(r"^Fig\.{0,2}\s*\d+\.{0,2}\s*", "", cleaned, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" -:\t")
+        return cleaned or None
+
+    def is_bad_title(self, title):
+        if not title:
+            return True
+        low = title.lower()
+        bad_tokens = (
+            "abstract", "keywords", "article info", "article history", "journal homepage",
+            "contents lists available", "sciencedirect", "doi", "www."
+        )
+        if any(tok in low for tok in bad_tokens):
+            return True
+        if re.search(r"\bA\W*B\W*S\W*T\W*R\W*A\W*C\W*T\b", title, flags=re.IGNORECASE):
+            return True
+        if "fig." in low or "fig.." in low:
+            return True
+        if len(title) > 220:
+            return True
+        return False
+
+    def strip_pdf_front_matter_keep_title(self, title):
+        """Elimina autores/afiliaciones al inicio y conserva el título."""
+        if not self.text:
+            return
+
+        intro_match = re.search(r"(?:^|\n)\s*Introduction\b", self.text, flags=re.IGNORECASE)
+        if intro_match and intro_match.start() < int(len(self.text) * 0.55):
+            body = self.text[intro_match.start():].lstrip()
+        else:
+            # Fallback: recortar hasta abstract si no hay "Introduction" temprano.
+            abs_match = re.search(r"(?:^|\n)\s*Abstract\b", self.text, flags=re.IGNORECASE)
+            body = self.text[abs_match.start():].lstrip() if abs_match else self.text
+
+        if title:
+            self.text = f"TITLE: {title}\n\n{body}"
+        else:
+            self.text = body
+
+    def remove_inline_pdf_noise(self):
+        """Elimina fragmentos editoriales incrustados dentro de líneas narrativas."""
+        patterns = [
+            r"ARTICLE INFO.*$",
+            r"Article history:.*$",
+            r"©\s*\d{4}.*?All rights are reserved.*?(?=(Introduction|$))",
+            r"\*+\s*Corresponding authors?\..*$",
+            r"E-?mail addresses?:.*$",
+            r"David\s+Y\..*?Zhang\s+et\s+al\..*?/+\s*Lab\s+Invest\s*\d+\s*\(\d{4}\)\s*\d+\s*\d+\s*\d+",
+            r"\bTo\s+David\s+Y\..*?Zhang\s+et\s+al\..*?/+\s*Lab\s+Invest\s*\d+\s*\(\d{4}\)\s*\d+\s*\d+\s*\d+",
+        ]
+        for pattern in patterns:
+            self.text = re.sub(pattern, " ", self.text, flags=re.IGNORECASE | re.MULTILINE)
 
     def remove_references(self):
         """Elimina la sección de referencias si aparece hacia el final del documento."""
@@ -303,7 +624,15 @@ class ArticlePreprocessor:
             r"^Published by Elsevier.*$",
             r"^This is an open access article.*$",
             r"^Data availability.*$",
+            r"^.*@.*$",
             r"^\d{4}-\d{4}.*$",
+            r"^ARTICLE INFO.*$",
+            r"^Article history:.*$",
+            r"^Revised\s+\d+.*$",
+            r"^Accepted\s+\d+.*$",
+            r"^Available online.*$",
+            r"^Lab Invest\s+\d+.*$",
+            r"^David Y\.\. Zhang et al\..*$",
         ]
         lines = self.text.splitlines()
         cleaned = []
@@ -314,6 +643,106 @@ class ArticlePreprocessor:
                 continue
             if any(re.match(pat, stripped, flags=re.IGNORECASE) for pat in noisy_patterns):
                 continue
+            cleaned.append(line)
+        self.text = "\n".join(cleaned)
+
+    def remove_repeated_footer_lines_pdf(self):
+        """Elimina líneas cortas repetidas muchas veces (headers/footers de página)."""
+        lines = self.text.splitlines()
+        counts = {}
+        for line in lines:
+            key = line.strip()
+            if not key:
+                continue
+            counts[key] = counts.get(key, 0) + 1
+
+        repeated = set()
+        for line, count in counts.items():
+            if count >= 3 and len(line) <= 120:
+                # Evitar eliminar texto normal frecuente; solo líneas con rasgos de header/footer.
+                if re.search(r"(lab invest|et al\.|^\d+$|^\d+\s+\d+\s+\d+|^page\s+\d+)", line, flags=re.IGNORECASE):
+                    repeated.add(line)
+
+        cleaned = []
+        for line in lines:
+            if line.strip() in repeated:
+                continue
+            cleaned.append(line)
+        self.text = "\n".join(cleaned)
+
+    def remove_table_blocks_pdf(self):
+        """Elimina bloques de tablas cuando empiezan por 'Table N'."""
+        lines = self.text.splitlines()
+        cleaned = []
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+            table_match = re.search(r"\bTable\s+\d+\b", line, flags=re.IGNORECASE)
+            if table_match:
+                prefix = line[:table_match.start()].strip()
+                if len(prefix) >= 50 and prefix.count(" ") >= 8:
+                    cleaned.append(prefix)
+                # Saltar bloque de tabla hasta volver a narrativa clara.
+                i += 1
+                blank_run = 0
+                while i < len(lines):
+                    current = lines[i].strip()
+                    if not current:
+                        blank_run += 1
+                    else:
+                        blank_run = 0
+
+                    if blank_run >= 1:
+                        break
+                    if re.match(r"^(Introduction|Methods?|Results?|Discussion|Conclusion|References)\b", current, flags=re.IGNORECASE):
+                        break
+                    words = re.findall(r"[A-Za-z]{2,}", current)
+                    alpha = sum(c.isalpha() for c in current)
+                    symbols = sum(1 for c in current if c in "/\\|%_=+[]()<>:;,*")
+                    symbol_ratio = symbols / max(len(current), 1)
+                    if len(words) >= 14 and current.endswith(".") and alpha > 60 and symbol_ratio < 0.07:
+                        break
+                    i += 1
+                continue
+            cleaned.append(lines[i])
+            i += 1
+        self.text = "\n".join(cleaned)
+
+    def remove_dense_table_lines_pdf(self):
+        """Elimina líneas de aspecto tabular/ruidoso sin narrativa."""
+        lines = self.text.splitlines()
+        cleaned = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                cleaned.append(line)
+                continue
+
+            alpha = sum(c.isalpha() for c in stripped)
+            digit = sum(c.isdigit() for c in stripped)
+            symbols = sum(1 for c in stripped if c in "/\\|%_=+[]()<>:;,*")
+            upper = sum(1 for c in stripped if c.isupper())
+            length = max(len(stripped), 1)
+
+            digit_ratio = digit / length
+            symbol_ratio = symbols / length
+            upper_ratio = (upper / alpha) if alpha else 0.0
+            has_table_markers = (
+                "/C2" in stripped
+                or "FDA approval" in stripped
+                or "Scanner system" in stripped
+                or "Summary of " in stripped
+            )
+            looks_table_row = (
+                length > 60
+                and digit_ratio > 0.15
+                and symbol_ratio > 0.08
+                and upper_ratio > 0.45
+            )
+
+            if has_table_markers or looks_table_row:
+                continue
+
             cleaned.append(line)
         self.text = "\n".join(cleaned)
 
@@ -460,12 +889,24 @@ class ArticlePreprocessor:
         # Limpieza menos agresiva para PDFs científicos
         if self.source_type == "pdf":
             # Limpieza más suave para no perder demasiado contenido
+            title = self.extract_title_from_first_page_header()
+            if self.is_bad_title(title):
+                title = self.normalize_title_text(self.pdf_title_hint)
+            if self.is_bad_title(title):
+                title = self.normalize_title_text(self.extract_pdf_title())
             self._normalize_pdf_text()
+            self.remove_inline_pdf_noise()
             self.remove_headers_footers_pdf()
             self.remove_pdf_boilerplate()
             self.remove_toc_lines_pdf()
             self.remove_pdf_line_noise()
+            if self.is_bad_title(title):
+                title = self.normalize_title_text(self.extract_pdf_title())
+            self.remove_repeated_footer_lines_pdf()
+            self.remove_table_blocks_pdf()
+            self.remove_dense_table_lines_pdf()
             self.remove_garbled_lines_pdf()
+            self.strip_pdf_front_matter_keep_title(title)
             self.remove_references()
             self.remove_references_anywhere_pdf()
             self.remove_urls()

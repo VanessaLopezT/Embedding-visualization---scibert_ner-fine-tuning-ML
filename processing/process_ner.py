@@ -1,4 +1,4 @@
-"""
+﻿"""
 Procesamiento de NER con SciBERT
 Divide textos largos en chunks y aplica NER
 Guarda resultados en JSON + embeddings por entidad
@@ -25,66 +25,82 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
 
-# Modo rápido: evita t-SNE y usa PCA 2D como proyección visual
+# Modo rÃ¡pido: evita t-SNE y usa PCA 2D como proyecciÃ³n visual
 FAST_MODE = os.getenv("SCIBERT_FAST", "0") == "1"
 
 # CONFIGURACION
 DEFAULT_CHECKPOINT = "checkpoint-90"
 
 # Rutas relativas portables (funciona en cualquier PC)
-PROJECT_ROOT = Path(__file__).parent.parent  # Sube a la carpeta raíz
+PROJECT_ROOT = Path(__file__).parent.parent  # Sube a la carpeta raÃ­z
 PROCESSING_DIR = Path(__file__).parent       # Carpeta actual (processing)
 
 
 def process_article_if_needed(text_input):
     """
-    Detecta si text_input es un archivo de artículo (.txt o .pdf)
-    Si lo es, lo procesa con prepare_article.py y retorna los párrafos procesados
+    Detecta si text_input es un archivo de artÃ­culo (.txt o .pdf)
+    Si lo es, lo procesa con prepare_article.py y retorna los pÃ¡rrafos procesados
     Si no, retorna el texto original
     """
     path = Path(text_input)
 
     # Verificar si es un archivo .txt o .pdf
     if path.exists() and path.suffix.lower() in [".txt", ".pdf"]:
-        print(f"\nDetectado archivo de artículo: {text_input}")
+        print(f"\nDetectado archivo de artÃ­culo: {text_input}")
 
-        # TXT: no limpiar, solo leer y devolver tal cual (dividir en párrafos simples)
+        # TXT: no limpiar, solo leer y devolver tal cual (dividir en pÃ¡rrafos simples)
         if path.suffix.lower() == ".txt":
             try:
                 raw = path.read_text(encoding="utf-8")
-                # Separar por líneas en blanco sin alterar contenido
-                parts = [p.strip() for p in re.split(r"\n\s*\n", raw) if p.strip()]
+                # Si existe TITLE, separarlo como bloque independiente para NER.
+                lines = raw.splitlines()
+                title_line = None
+                title_idx = None
+                for i, ln in enumerate(lines[:30]):
+                    if re.match(r"^\s*TITLE:\s*.+$", ln, flags=re.IGNORECASE):
+                        title_line = ln.strip()
+                        title_idx = i
+                        break
+
+                if title_line is not None:
+                    body_lines = lines[:title_idx] + lines[title_idx + 1:]
+                    body_raw = "\n".join(body_lines).strip()
+                    parts = [title_line]
+                    parts.extend([p.strip() for p in re.split(r"\n\s*\n", body_raw) if p.strip()])
+                else:
+                    # Separar por lineas en blanco sin alterar contenido
+                    parts = [p.strip() for p in re.split(r"\n\s*\n", raw) if p.strip()]
                 return parts if parts else [raw]
             except Exception as e:
                 print(f"Error leyendo TXT: {e}")
                 return [text_input]
 
         # PDF: limpiar con prepare_article.py
-        print("Procesando artículo con prepare_article.py...")
+        print("Procesando artÃ­culo con prepare_article.py...")
 
         try:
-            # Importar dinámicamente prepare_article
+            # Importar dinÃ¡micamente prepare_article
             import sys
             sys.path.insert(0, str(PROCESSING_DIR))
             from prepare_article import ArticlePreprocessor
 
             preprocessor = ArticlePreprocessor()
             if not preprocessor.load_article(str(path)):
-                print("Error al cargar artículo. Usando texto directo.")
+                print("Error al cargar artÃ­culo. Usando texto directo.")
                 return [text_input]
 
             preprocessor.clean()
             paragraphs = preprocessor.get_paragraphs()
 
-            print(f"Artículo procesado: {len(paragraphs)} párrafos extraídos")
+            print(f"ArtÃ­culo procesado: {len(paragraphs)} pÃ¡rrafos extraÃ­dos")
             return paragraphs
 
         except ImportError:
-            print("Error: No se encontró prepare_article.py")
-            print("Asegúrate de que prepare_article.py esté en la carpeta processing/")
+            print("Error: No se encontrÃ³ prepare_article.py")
+            print("AsegÃºrate de que prepare_article.py estÃ© en la carpeta processing/")
             return [text_input]
         except Exception as e:
-            print(f"Error procesando artículo: {e}")
+            print(f"Error procesando artÃ­culo: {e}")
             return [text_input]
 
     # Si no es un archivo, retornar como texto directo
@@ -127,7 +143,7 @@ class SciBERTNERProcessor:
         return chunks
 
     def _truncate_chunk_for_bert(self, chunk, max_length=512):
-        """Asegura que el chunk no exceda el máximo de tokens del modelo."""
+        """Asegura que el chunk no exceda el mÃ¡ximo de tokens del modelo."""
         if not chunk:
             return chunk
         token_ids = self.tokenizer(
@@ -204,7 +220,7 @@ class SciBERTNERProcessor:
                         max_length=512,
                         return_offsets_mapping=True
                     )
-                    # Seguridad extra por si el tokenizer no truncó correctamente
+                    # Seguridad extra por si el tokenizer no truncÃ³ correctamente
                     if inputs["input_ids"].shape[1] > 512:
                         inputs["input_ids"] = inputs["input_ids"][:, :512]
                         if "attention_mask" in inputs:
@@ -283,8 +299,8 @@ class SciBERTNERProcessor:
         )
         print(f"Embeddings por entidad guardados en: {embeddings_path.relative_to(PROJECT_ROOT)}")
 
-        # Ejecutar visualize_tsne_prepare automáticamente
-        print("\nGenerando visualización t-SNE...")
+        # Ejecutar visualize_tsne_prepare automÃ¡ticamente
+        print("\nGenerando visualizaciÃ³n t-SNE...")
         if progress_file:
             _write_progress(
                 progress_file,
@@ -315,7 +331,7 @@ class SciBERTNERProcessor:
 
     def _run_tsne_visualization(self, embeddings_file, ner_output_file, tsne_output=None):
         """
-        Ejecuta visualize_tsne_prepare.py automáticamente después del procesamiento NER
+        Ejecuta visualize_tsne_prepare.py automÃ¡ticamente despuÃ©s del procesamiento NER
         Determina el archivo de salida basado en el archivo de entrada
         """
         try:
@@ -327,7 +343,7 @@ class SciBERTNERProcessor:
                     tsne_output = str(PROJECT_ROOT / "web" / "tsne_data.json")
 
             if FAST_MODE:
-                print("Modo rápido: usando PCA 2D en lugar de t-SNE.")
+                print("Modo rÃ¡pido: usando PCA 2D en lugar de t-SNE.")
                 self._export_pca_fallback(embeddings_file, tsne_output)
                 return
 
@@ -343,19 +359,19 @@ class SciBERTNERProcessor:
             ]
             try:
                 subprocess.run(command, check=True, timeout=45)
-                print("Visualización t-SNE generada correctamente")
+                print("VisualizaciÃ³n t-SNE generada correctamente")
             except subprocess.TimeoutExpired:
-                print("Advertencia: t-SNE tardó demasiado. Usando fallback PCA 2D.")
+                print("Advertencia: t-SNE tardÃ³ demasiado. Usando fallback PCA 2D.")
                 self._export_pca_fallback(embeddings_file, tsne_output)
             except subprocess.CalledProcessError as e:
-                print(f"Advertencia: t-SNE falló ({e}). Usando fallback PCA 2D.")
+                print(f"Advertencia: t-SNE fallÃ³ ({e}). Usando fallback PCA 2D.")
                 self._export_pca_fallback(embeddings_file, tsne_output)
 
         except ImportError as e:
             print(f"Advertencia: No se pudo importar visualize_tsne_prepare: {e}")
-            print("Asegúrate de que visualize_tsne_prepare.py esté en la carpeta processing/")
+            print("AsegÃºrate de que visualize_tsne_prepare.py estÃ© en la carpeta processing/")
         except Exception as e:
-            print(f"Advertencia: Error al generar visualización t-SNE: {e}")
+            print(f"Advertencia: Error al generar visualizaciÃ³n t-SNE: {e}")
             print("Puedes ejecutar visualize_tsne_prepare.py manualmente si es necesario")
 
     def _export_pca_fallback(self, embeddings_file, output_path):
@@ -411,7 +427,7 @@ class SciBERTNERProcessor:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Procesar textos o artículos académicos con NER SciBERT"
+        description="Procesar textos o artÃ­culos acadÃ©micos con NER SciBERT"
     )
     parser.add_argument("--checkpoint", default=DEFAULT_CHECKPOINT)
     parser.add_argument("--output", default="ner_results.json")
@@ -441,7 +457,7 @@ def main():
             "The SQuAD dataset revolutionized question answering evaluation."
         ]
     else:
-        # Procesar cada argumento (puede ser un artículo .txt/.pdf o texto directo)
+        # Procesar cada argumento (puede ser un artÃ­culo .txt/.pdf o texto directo)
         for text_input in args.text:
             processed = process_article_if_needed(text_input)
             texts_to_process.extend(processed)

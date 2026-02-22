@@ -123,6 +123,19 @@ html, body {
   color: #555;
 }
 
+#text-content .article-title {
+  margin: 8px 0 18px 0;
+  font-size: 18px;
+  line-height: 1.35;
+  color: #1f2937;
+  font-weight: 700;
+  text-align: left;
+}
+
+#text-content .title-spacer {
+  height: 12px;
+}
+
 .entity {
   cursor: default;
   padding: 3px 6px;

@@ -5,8 +5,8 @@
   <title>SciBERT NER Visualization</title>
 
   {% load static %}
-  <link rel="stylesheet" href="{% static 'css/style.css' %}?v=20260205" />
-  <link rel="stylesheet" href="{% static 'css/textPanel.css' %}?v=20260205" />
+  <link rel="stylesheet" href="{% static 'css/style.css' %}?v=20260222c" />
+  <link rel="stylesheet" href="{% static 'css/textPanel.css' %}?v=20260222c" />
   <style>
     html, body { height: 100%; overflow: hidden !important; }
   </style>
@@ -143,9 +143,9 @@
 </div>
 
 <script type="module">
-  import { loadTSNEData } from "{% static 'js/dataLoader.js' %}?v=20260205";
-  import { initTSNEChart } from "{% static 'js/tsneChart.js' %}?v=20260205";
-  import { renderText } from "{% static 'js/textPanel.js' %}?v=20260205";
+  import { loadTSNEData } from "{% static 'js/dataLoader.js' %}?v=20260222i";
+  import { initTSNEChart } from "{% static 'js/tsneChart.js' %}?v=20260222i";
+  import { renderText } from "{% static 'js/textPanel.js' %}?v=20260222i";
 
   const config = {
     exampleUrl: "/api/example/tsne",
@@ -165,7 +165,11 @@
   function updateDataSourceLabel(source, data, totalParagraphs = null) {
     const entities = Array.isArray(data) ? data.length : 0;
     const paragraphsWithEntities = Array.isArray(data)
-      ? new Set(data.map(p => p.sentence_id)).size
+      ? new Set(
+          data
+            .filter(p => !String(p.sentence_text || "").trim().match(/^TITLE:\s*/i))
+            .map(p => p.sentence_id)
+        ).size
       : 0;
     const isEmpty = entities === 0;
     dataSourceEl.style.color = isEmpty ? "#c44d56" : "#999";
@@ -202,6 +206,7 @@
     try {
       let data;
       let totalParagraphs = null;
+      let articleTitle = null;
       if (source === "article" && articleId) {
         const response = await fetch(config.tsneUrl(articleId));
         if (!response.ok) throw new Error("No article data available");
@@ -213,6 +218,9 @@
             const meta = await metaResponse.json();
             if (meta && meta.progress && typeof meta.progress.total === "number") {
               totalParagraphs = meta.progress.total;
+            }
+            if (meta && typeof meta.title === "string") {
+              articleTitle = meta.title;
             }
           }
         } catch (_) {}
@@ -228,7 +236,7 @@
 
       currentChart = echarts.init(chartDom);
       initTSNEChart(currentChart, data);
-      renderText(data, document.getElementById("text-content"));
+      renderText(data, document.getElementById("text-content"), articleTitle);
       updateDataSourceLabel(source, data, totalParagraphs);
       if (entitiesSummary) {
         entitiesSummary.textContent = `Entidades: ${data.length}`;

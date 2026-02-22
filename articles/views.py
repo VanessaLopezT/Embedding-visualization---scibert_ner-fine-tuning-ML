@@ -1,5 +1,6 @@
 from pathlib import Path
 import threading
+import re
 
 from django.conf import settings
 from django.http import JsonResponse, Http404
@@ -83,7 +84,42 @@ def get_article_meta(request, article_id):
             progress = load_json(paths["progress"])
         except Exception:
             progress = None
-    return JsonResponse({"article": load_json(paths["meta"]), "progress": progress})
+    title = None
+    cleaned = paths.get("cleaned_text")
+    if cleaned and cleaned.exists():
+        try:
+            with open(cleaned, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            # Buscar TITLE en las primeras líneas (no asumir que está en la 1).
+            for raw in lines[:30]:
+                line = (raw or "").strip()
+                if not line:
+                    continue
+                match = re.match(r"^TITLE:\s*(.+)$", line, flags=re.IGNORECASE)
+                if match:
+                    title = match.group(1).strip()
+                    break
+
+            # Fallback: usar primer párrafo narrativo corto si no hay TITLE.
+            if not title:
+                for raw in lines[:60]:
+                    line = (raw or "").strip()
+                    if not line:
+                        continue
+                    low = line.lower()
+                    if low.startswith(("abstract", "keywords", "introduction")):
+                        continue
+                    if len(line) < 15 or len(line) > 220:
+                        continue
+                    if "journal homepage" in low or "contents lists available" in low:
+                        continue
+                    title = line
+                    break
+        except Exception:
+            title = None
+
+    return JsonResponse({"article": load_json(paths["meta"]), "progress": progress, "title": title})
 
 
 @require_GET
@@ -104,4 +140,5 @@ def _resolve_article_paths(article_id):
         "embeddings": root / "outputs" / "entity_embeddings.npz",
         "tsne": root / "outputs" / "tsne_data.json",
         "progress": root / "progress.json",
+        "cleaned_text": root / "outputs" / "cleaned_text.txt",
     }

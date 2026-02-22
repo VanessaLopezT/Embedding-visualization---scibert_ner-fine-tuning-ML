@@ -8,9 +8,10 @@
 
 let entityMap = {};
 
-export function renderText(data, container) {
+export function renderText(data, container, externalTitle = null) {
   container.innerHTML = "";
   entityMap = {};
+  let titleRendered = false;
 
   const sentences = {};
 
@@ -25,8 +26,73 @@ export function renderText(data, container) {
     entityMap[d.id] = d;
   });
 
+  let titleSentence = null;
   Object.values(sentences).forEach(sentence => {
     const text = sentence.text || "";
+    if (!titleSentence && /^TITLE:\s*/i.test(text.trim())) {
+      titleSentence = sentence;
+    }
+  });
+
+  const cleanExternalTitle = sanitizeTitle(String(externalTitle || "").trim());
+  const fallbackTitle = titleSentence
+    ? sanitizeTitle(String(titleSentence.text || "").replace(/^TITLE:\s*/i, "").trim())
+    : "";
+  const titleText = cleanExternalTitle || fallbackTitle;
+
+  if (titleText) {
+    const titleRanges = [];
+    const sourceEntities = titleSentence ? (titleSentence.entities || []) : [];
+    sourceEntities.forEach(ent => {
+      const term = ent.entity || "";
+      if (!term) return;
+      const matches = findAllMatches(titleText, term);
+      for (const match of matches) {
+        if (!overlapsExisting(match, titleRanges)) {
+          titleRanges.push({
+            start: match.start,
+            end: match.end,
+            id: ent.id,
+            label: ent.label,
+            entity: term
+          });
+          break;
+        }
+      }
+    });
+    titleRanges.sort((a, b) => a.start - b.start);
+
+    const h = document.createElement("h3");
+    h.className = "article-title";
+    if (titleRanges.length > 0) {
+      h.innerHTML = buildHtmlFromRanges(titleText, titleRanges);
+    } else {
+      h.textContent = titleText;
+    }
+    container.appendChild(h);
+
+    const spacer = document.createElement("div");
+    spacer.className = "title-spacer";
+    container.appendChild(spacer);
+    titleRendered = true;
+  }
+
+  Object.values(sentences).forEach(sentence => {
+    const text = sentence.text || "";
+    const isTitle = /^TITLE:\s*/i.test(text.trim());
+    if (isTitle) {
+      if (titleRendered) return;
+      const h = document.createElement("h3");
+      h.className = "article-title";
+      h.textContent = text.replace(/^TITLE:\s*/i, "").trim();
+      container.appendChild(h);
+      const spacer = document.createElement("div");
+      spacer.className = "title-spacer";
+      container.appendChild(spacer);
+      titleRendered = true;
+      return;
+    }
+
     const ranges = [];
 
     sentence.entities.forEach(ent => {
@@ -100,4 +166,14 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function sanitizeTitle(title) {
+  let t = String(title || "").trim();
+  if (!t) return "";
+  // Si viene pegado con abstract/keywords, cortar ese ruido.
+  t = t.replace(/\bA\W*B\W*S\W*T\W*R\W*A\W*C\W*T\b[\s\S]*$/i, "").trim();
+  t = t.replace(/\bAbstract\b[\s\S]*$/i, "").trim();
+  t = t.replace(/\s{2,}/g, " ").trim();
+  return t;
 }
