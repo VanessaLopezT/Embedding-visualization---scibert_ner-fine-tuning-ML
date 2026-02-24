@@ -122,6 +122,62 @@
       border-color: #e5e7eb;
       color: #9aa0a6;
     }
+    .chart-help {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      z-index: 3;
+    }
+    .chart-help-btn {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 1px solid #9ec5fe;
+      background: #e7f1ff;
+      color: #0d6efd;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1;
+      cursor: help;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 1px 3px rgba(13, 110, 253, 0.18);
+    }
+    .chart-help-btn:hover {
+      border-color: #0d6efd;
+      background: #dbe9ff;
+      color: #0b5ed7;
+    }
+    .chart-help-tooltip {
+      position: absolute;
+      top: 30px;
+      right: 0;
+      width: 320px;
+      max-width: min(320px, 70vw);
+      background: #ffffff;
+      color: #495057;
+      border: 1px solid #dbe6f5;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      line-height: 1.45;
+      text-align: left;
+      opacity: 0;
+      transform: translateY(-4px);
+      pointer-events: none;
+      transition: opacity 0.15s ease, transform 0.15s ease;
+      box-shadow: 0 8px 20px rgba(13, 110, 253, 0.12);
+    }
+    .chart-help:hover .chart-help-tooltip,
+    .chart-help:focus-within .chart-help-tooltip {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .chart-help-tooltip strong {
+      color: #0d6efd;
+      font-weight: 700;
+    }
     @keyframes fade-pulse {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.6; }
@@ -159,6 +215,16 @@
 
 <div id="container" style="flex:1; min-height:0; overflow:hidden;">
   <div id="chart-panel" style="height: 100%; overflow: hidden;">
+    <div class="chart-help" aria-label="Ayuda de la gráfica">
+      <button class="chart-help-btn" type="button" aria-label="¿Qué muestra esta gráfica?">?</button>
+      <div class="chart-help-tooltip" role="tooltip">
+        <strong>¿Qué ves aquí?</strong><br>
+        Cada punto es una entidad detectada en el texto (por ejemplo: modelo, métrica, técnica, etc.).<br><br>
+        <strong>Dimensión 1 y Dimensión 2</strong> no son variables reales del artículo: son una proyección 2D para visualizar cercanía semántica.<br><br>
+        Si dos puntos están cerca, suelen aparecer en contextos parecidos. Si están lejos, su contexto suele ser distinto.<br><br>
+        Puedes ver palabras repetidas porque la misma entidad puede aparecer en distintos párrafos/contextos y se representa más de una vez.
+      </div>
+    </div>
     <div id="tsne-chart"></div>
   </div>
 
