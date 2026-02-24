@@ -128,6 +128,31 @@
       right: 12px;
       z-index: 3;
     }
+    .chart-mode-btn {
+      position: absolute;
+      top: 10px;
+      right: 48px;
+      z-index: 3;
+      border: 1px solid #9ec5fe;
+      background: #ffffff;
+      color: #0d6efd;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 999px;
+      padding: 4px 10px;
+      cursor: pointer;
+      box-shadow: 0 1px 3px rgba(13, 110, 253, 0.14);
+      transition: all 0.15s ease;
+    }
+    .chart-mode-btn:hover {
+      border-color: #0d6efd;
+      background: #e7f1ff;
+      color: #0b5ed7;
+    }
+    .chart-mode-btn:focus-visible {
+      outline: 2px solid rgba(13, 110, 253, 0.35);
+      outline-offset: 1px;
+    }
     .chart-help-btn {
       width: 24px;
       height: 24px;
@@ -215,6 +240,7 @@
 
 <div id="container" style="flex:1; min-height:0; overflow:hidden;">
   <div id="chart-panel" style="height: 100%; overflow: hidden;">
+    <button id="chart-mode-btn" class="chart-mode-btn" type="button" aria-label="Cambiar modo de gráfica">Vista: Original</button>
     <div class="chart-help" aria-label="Ayuda de la gráfica">
       <button class="chart-help-btn" type="button" aria-label="¿Qué muestra esta gráfica?">?</button>
       <div class="chart-help-tooltip" role="tooltip">
@@ -222,7 +248,8 @@
         Cada punto es una entidad detectada en el texto (por ejemplo: modelo, métrica, técnica, etc.).<br><br>
         <strong>Dimensión 1 y Dimensión 2</strong> no son variables reales del artículo: son una proyección 2D para visualizar cercanía semántica.<br><br>
         Si dos puntos están cerca, suelen aparecer en contextos parecidos. Si están lejos, su contexto suele ser distinto.<br><br>
-        Puedes ver palabras repetidas porque la misma entidad puede aparecer en distintos párrafos/contextos y se representa más de una vez.
+        Puedes ver palabras repetidas porque la misma entidad puede aparecer en distintos párrafos/contextos y se representa más de una vez.<br><br>
+        Si cambias a <strong>Vista: Frecuencia</strong>, cada palabra aparece una sola vez y el tamaño del punto representa cuántas veces se detectó.
       </div>
     </div>
     <div id="tsne-chart"></div>
@@ -251,9 +278,10 @@
 </div>
 
 <script type="module">
-  import { loadTSNEData } from "{% static 'js/dataLoader.js' %}?v=20260222j";
-  import { initTSNEChart } from "{% static 'js/tsneChart.js' %}?v=20260222j";
-  import { renderText } from "{% static 'js/textPanel.js' %}?v=20260222j";
+  import { loadTSNEData } from "{% static 'js/dataLoader.js' %}?v=20260222l";
+  import { initTSNEChart } from "{% static 'js/tsneChart.js' %}?v=20260222l";
+  import { initTSNEFrequencyChart, resetFrequencyExpansion } from "{% static 'js/tsneChartFrequency.js' %}?v=20260222l";
+  import { renderText } from "{% static 'js/textPanel.js' %}?v=20260222l";
 
   const config = {
     exampleUrl: "/api/example/tsne",
@@ -275,6 +303,8 @@
   const btnEntitiesOnly = document.getElementById("btn-entities-only");
   const btnAllParagraphs = document.getElementById("btn-all-paragraphs");
   const entitiesCountEl = document.getElementById("entities-count");
+  const chartModeBtn = document.getElementById("chart-mode-btn");
+  let chartViewMode = "standard";
 
   const panelState = {
     source: "example",
@@ -344,6 +374,36 @@
       cleanedText: panelState.cleanedText
     });
     updateDataSourceLabel(panelState.source, panelState.data, panelState.totalParagraphs);
+  }
+
+  function updateChartModeButton() {
+    if (!chartModeBtn) return;
+    chartModeBtn.textContent = chartViewMode === "frequency" ? "Vista: Frecuencia" : "Vista: Original";
+  }
+
+  function getCurrentAxisRange(chart) {
+    if (!chart || typeof chart.getModel !== "function") return null;
+    try {
+      const model = chart.getModel();
+      const xAxis = model.getComponent("xAxis", 0)?.axis;
+      const yAxis = model.getComponent("yAxis", 0)?.axis;
+      if (!xAxis || !yAxis) return null;
+      const [xMin, xMax] = xAxis.scale.getExtent();
+      const [yMin, yMax] = yAxis.scale.getExtent();
+      if (![xMin, xMax, yMin, yMax].every(Number.isFinite)) return null;
+      return { xMin, xMax, yMin, yMax };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function renderChartByMode(data, axisRange = null) {
+    if (!currentChart) return;
+    if (chartViewMode === "frequency") {
+      initTSNEFrequencyChart(currentChart, data, axisRange);
+      return;
+    }
+    initTSNEChart(currentChart, data, axisRange);
   }
 
   function hideProgress() {
@@ -416,7 +476,8 @@
       }
 
       currentChart = echarts.init(chartDom);
-      initTSNEChart(currentChart, data);
+      resetFrequencyExpansion();
+      renderChartByMode(data);
       panelState.source = source;
       panelState.articleId = articleId;
       panelState.mode = "entities";
@@ -476,6 +537,19 @@
       panelState.mode = "all";
       renderCurrentTextPanel();
     });
+  }
+
+  if (chartModeBtn) {
+    chartModeBtn.addEventListener("click", () => {
+      const axisRangeFromCurrent = getCurrentAxisRange(currentChart);
+      chartViewMode = chartViewMode === "standard" ? "frequency" : "standard";
+      updateChartModeButton();
+      if (currentChart && Array.isArray(panelState.data)) {
+        resetFrequencyExpansion();
+        renderChartByMode(panelState.data, axisRangeFromCurrent);
+      }
+    });
+    updateChartModeButton();
   }
 
   // Selector

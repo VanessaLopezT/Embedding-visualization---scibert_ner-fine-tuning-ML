@@ -1,0 +1,10 @@
+export const CATEGORY_COLORS = {
+  APPLICATION: "#d63384",
+  ARCHITECTURE: "#6f42c1",
+  DATASET: "#fd7e14",
+  TECHNOLOGY: "#20c997",
+  MODEL: "#0d6efd",
+  METRIC: "#198754",
+  TECHNIQUE: "#ffc107"
+};
+

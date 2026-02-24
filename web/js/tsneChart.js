@@ -1,27 +1,23 @@
-﻿/**
+/**
  * tsneChart.js
- * Gestiona la visualización de la gráfica t-SNE con ECharts.
- * - Inicializa los datos agrupados por tipo de entidad (MODEL, METRIC, TECHNIQUE)
- * - Configura zoom con mouse wheel (scroll), pan y toolbar
- * - Establece eventos de hover para resaltar entidades en el panel de texto
- * - Muestra tooltip con nombre y categoría al pasar el cursor
+ * Gestiona la visualización base de la gráfica t-SNE con ECharts.
  */
+
+import { CATEGORY_COLORS } from "./categoryColors.js";
 
 let globalChart = null;
 
-export function initTSNEChart(chart, data) {
+export function initTSNEChart(chart, data, axisRange = null) {
   globalChart = chart;
-
-  // Agrupar por entity_group (label)
+  // Agrupar los puntos por su etiqueta para crear series separadas
   const groups = {};
   data.forEach(p => {
     if (!groups[p.label]) groups[p.label] = [];
 
     groups[p.label].push({
-      // ECharts necesita value:[x,y]
-      value: [p.x, p.y],
 
-      // Metadata completa (NO perderla)
+      value: [p.x, p.y],
+      
       entity: p.entity,
       label: p.label,
       text_index: p.text_index,
@@ -30,23 +26,13 @@ export function initTSNEChart(chart, data) {
     });
   });
 
-  const colorMap = {
-    "APPLICATION": "#d63384",
-    "ARCHITECTURE": "#6f42c1",
-    "DATASET": "#fd7e14",
-    "TECHNOLOGY": "#20c997",
-    "MODEL": "#0d6efd",
-    "METRIC": "#198754",
-    "TECHNIQUE": "#ffc107"
-  };
-
   const series = Object.keys(groups).map(label => ({
     name: label,
     type: "scatter",
     data: groups[label],
     symbolSize: 16,
     itemStyle: {
-      color: colorMap[label] || "#666"
+      color: CATEGORY_COLORS[label] || "#666"
     },
 
     label: {
@@ -68,7 +54,6 @@ export function initTSNEChart(chart, data) {
       }
     }
   }));
-
   const option = {
     animation: true,
     animationDuration: 350,
@@ -77,8 +62,7 @@ export function initTSNEChart(chart, data) {
     tooltip: {
       show: true,
       formatter: function(p) {
-        return "<b>" + p.data.entity + "</b><br/>" +
-               "Tipo: " + p.seriesName;
+        return "<b>" + p.data.entity + "</b><br/>" + "Tipo: " + p.seriesName;
       }
     },
 
@@ -148,6 +132,7 @@ export function initTSNEChart(chart, data) {
 
     xAxis: {
       type: "value",
+      ...(axisRange ? { min: axisRange.xMin, max: axisRange.xMax } : {}),
       name: "Dimensión 1",
       nameLocation: "middle",
       nameGap: 30,
@@ -158,9 +143,10 @@ export function initTSNEChart(chart, data) {
         lineStyle: { color: "#f0f0f0" }
       }
     },
-
+    
     yAxis: {
       type: "value",
+      ...(axisRange ? { min: axisRange.yMin, max: axisRange.yMax } : {}),
       name: "Dimensión 2",
       nameLocation: "middle",
       nameGap: 40,
@@ -175,11 +161,10 @@ export function initTSNEChart(chart, data) {
     series
   };
 
-  chart.setOption(option);
+  chart.setOption(option, true);
 
-  // Event listener para resaltar en el panel cuando se hace hover sobre un punto
-
- // Se asume que cada punto tiene un atributo 'id' que corresponde a un elemento en el panel de texto
+  chart.off("mouseover");
+  chart.off("mouseout");
   chart.on("mouseover", (params) => {
     if (params.data && params.data.id !== undefined) {
       highlightEntityInPanel(params.data.id);
@@ -192,7 +177,7 @@ export function initTSNEChart(chart, data) {
 
   window.addEventListener("resize", () => chart.resize());
 }
-// Función para resaltar la entidad correspondiente en el panel de texto al hacer hover sobre un punto
+
 function highlightEntityInPanel(id) {
   const entityEl = document.querySelector(`[data-id="${id}"]`);
   if (entityEl) {
@@ -215,10 +200,10 @@ export function createTSNEChart(domElement, data) {
   const chart = echarts.init(domElement);
   initTSNEChart(chart, data);
 }
-// Función para resaltar un punto específico en la gráfica t-SNE dado su ID (usado desde el panel de texto)
+
 export function highlightPoint(id) {
   if (!globalChart) return;
-  
+
   const option = globalChart.getOption();
   option.series.forEach(series => {
     series.data.forEach((point) => {
@@ -236,3 +221,4 @@ export function clearHighlight() {
   if (!globalChart) return;
   globalChart.setOption(globalChart.getOption(), { notMerge: false });
 }
+
