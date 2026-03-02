@@ -1,4 +1,4 @@
-﻿/**
+/**
  * textPanel.js
  * Renderiza el texto analizado con las entidades encontradas.
  * - Agrupa entidades por sentencia/frase
@@ -200,5 +200,9 @@ function extractBodyParagraphsFromCleanedText(cleanedText) {
     .split(/\r?\n\s*\r?\n/)
     .map(p => p.trim())
     .filter(Boolean)
-    .filter(p => !/^TITLE:\s*/i.test(p));
+    .flatMap(p => {
+      if (!/^TITLE:\s*/i.test(p)) return [p];
+      const withoutTitle = p.replace(/^TITLE:\s*[^\r\n]*\s*/i, "").trim();
+      return withoutTitle ? [withoutTitle] : [];
+    });
 }

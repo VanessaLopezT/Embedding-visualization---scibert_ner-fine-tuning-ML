@@ -1,6 +1,6 @@
 /**
  * tsneChart.js
- * Gestiona la visualización base de la gráfica t-SNE con ECharts.
+ * Gestiona la visualizaciÃ³n base de la grÃ¡fica t-SNE con ECharts.
  */
 
 import { CATEGORY_COLORS } from "./categoryColors.js";
@@ -133,7 +133,7 @@ export function initTSNEChart(chart, data, axisRange = null) {
     xAxis: {
       type: "value",
       ...(axisRange ? { min: axisRange.xMin, max: axisRange.xMax } : {}),
-      name: "Dimensión 1",
+      name: "Dimensi\u00F3n 1",
       nameLocation: "middle",
       nameGap: 30,
       axisLine: { show: false, lineStyle: { color: "#000000" } },
@@ -147,7 +147,7 @@ export function initTSNEChart(chart, data, axisRange = null) {
     yAxis: {
       type: "value",
       ...(axisRange ? { min: axisRange.yMin, max: axisRange.yMax } : {}),
-      name: "Dimensión 2",
+      name: "Dimensi\u00F3n 2",
       nameLocation: "middle",
       nameGap: 40,
       axisLine: { show: false, lineStyle: { color: "#000000" } },

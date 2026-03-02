@@ -1,6 +1,6 @@
 /**
  * tsneChartFrequency.js
- * Vista de frecuencia: un punto por palabra, tamaño por frecuencia.
+ * Vista de frecuencia: un punto por palabra, tama?o por frecuencia.
  * Click en un agregado despliega ocurrencias individuales.
  */
 
@@ -8,11 +8,22 @@ import { CATEGORY_COLORS } from "./categoryColors.js";
 
 let expandedEntityKey = null;
 let frequencyAxisRange = null;
+let frequencyScaleOptions = {
+  scaleMode: "article",
+  globalReferenceMax: 30
+};
 
-export function initTSNEFrequencyChart(chart, data, axisRange = null) {
+export function initTSNEFrequencyChart(chart, data, axisRange = null, options = {}) {
   frequencyAxisRange = axisRange || null;
+  frequencyScaleOptions = {
+    scaleMode: options.scaleMode === "global" ? "global" : "article",
+    globalReferenceMax: Number.isFinite(options.globalReferenceMax) && options.globalReferenceMax > 1
+      ? options.globalReferenceMax
+      : 30
+  };
   const safeData = Array.isArray(data) ? data : [];
   renderFrequency(chart, safeData);
+  clearChartHoverState(chart);
 
   chart.off("mouseover");
   chart.off("mouseout");
@@ -46,14 +57,32 @@ export function initTSNEFrequencyChart(chart, data, axisRange = null) {
         }
         return;
       }
+      // Si ya esta expandida y el click cae sobre una bolita interna,
+      // priorizar la bolita interna en lugar de colapsar la grande.
+      if (expandedEntityKey && expandedEntityKey === params.data.key) {
+        const hitOccurrence = findOccurrenceNearClick(chart, params);
+        if (hitOccurrence && hitOccurrence.id !== undefined) {
+          highlightEntityInPanel(hitOccurrence.id);
+          return;
+        }
+      }
       expandedEntityKey = expandedEntityKey === params.data.key ? null : params.data.key;
       renderFrequency(chart, safeData);
+      clearChartHoverState(chart);
+      return;
+    }
+    if (params.data.isOccurrence) {
+      // Click en bolita pequena: seleccionar, no colapsar.
+      if (params.data.id !== undefined) {
+        highlightEntityInPanel(params.data.id);
+      }
       return;
     }
     if (params.data.id !== undefined) {
       highlightEntityInPanel(params.data.id);
     }
   });
+
 }
 
 export function resetFrequencyExpansion() {
@@ -61,8 +90,56 @@ export function resetFrequencyExpansion() {
   frequencyAxisRange = null;
 }
 
+function clearChartHoverState(chart) {
+  if (!chart || typeof chart.dispatchAction !== "function") return;
+  try {
+    chart.dispatchAction({ type: "downplay", seriesIndex: "all" });
+    chart.dispatchAction({ type: "hideTip" });
+  } catch (_) {
+    // no-op
+  }
+}
+
+function findOccurrenceNearClick(chart, params) {
+  const list = Array.isArray(params?.data?.occurrences) ? params.data.occurrences : [];
+  if (!list.length) return null;
+  const pointer = getEventOffset(params?.event);
+  if (!pointer) return null;
+  return findOccurrenceNearPointer(chart, list, pointer, 10);
+}
+
+function findOccurrenceNearPointer(chart, list, pointer, hitRadius = 10) {
+  let nearest = null;
+  let bestDist = Number.POSITIVE_INFINITY;
+
+  for (const occ of list) {
+    const px = chart.convertToPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [Number(occ.x || 0), Number(occ.y || 0)]);
+    if (!Array.isArray(px) || px.length < 2) continue;
+    const dx = px[0] - pointer.x;
+    const dy = px[1] - pointer.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist <= hitRadius && dist < bestDist) {
+      bestDist = dist;
+      nearest = occ;
+    }
+  }
+  return nearest;
+}
+
+function getEventOffset(evt) {
+  if (!evt) return null;
+  if (Number.isFinite(evt.offsetX) && Number.isFinite(evt.offsetY)) {
+    return { x: evt.offsetX, y: evt.offsetY };
+  }
+  const inner = evt.event;
+  if (inner && Number.isFinite(inner.offsetX) && Number.isFinite(inner.offsetY)) {
+    return { x: inner.offsetX, y: inner.offsetY };
+  }
+  return null;
+}
+
 function renderFrequency(chart, data) {
-  const series = buildFrequencySeries(data, expandedEntityKey);
+  const series = buildFrequencySeries(data, expandedEntityKey, frequencyScaleOptions);
   const axisRange = frequencyAxisRange || getCurrentAxisRange(chart);
 
   const option = {
@@ -142,7 +219,7 @@ function renderFrequency(chart, data) {
     xAxis: {
       type: "value",
       ...(axisRange ? { min: axisRange.xMin, max: axisRange.xMax } : {}),
-      name: "Dimensión 1",
+      name: "Dimensi\u00F3n 1",
       nameLocation: "middle",
       nameGap: 30,
       axisLine: { show: false, lineStyle: { color: "#000000" } },
@@ -155,7 +232,7 @@ function renderFrequency(chart, data) {
     yAxis: {
       type: "value",
       ...(axisRange ? { min: axisRange.yMin, max: axisRange.yMax } : {}),
-      name: "Dimensión 2",
+      name: "Dimensi\u00F3n 2",
       nameLocation: "middle",
       nameGap: 40,
       axisLine: { show: false, lineStyle: { color: "#000000" } },
@@ -187,7 +264,7 @@ function getCurrentAxisRange(chart) {
   }
 }
 
-function buildFrequencySeries(data, expandedKey) {
+function buildFrequencySeries(data, expandedKey, scaleOptions = {}) {
   const aggregateMap = new Map();
   data.forEach(p => {
     const raw = String(p.entity || "").trim();
@@ -228,32 +305,99 @@ function buildFrequencySeries(data, expandedKey) {
   });
 
   const frequencies = aggregates.map(a => a.frequency);
-  const minFreq = frequencies.length ? Math.min(...frequencies) : 1;
   const maxFreq = frequencies.length ? Math.max(...frequencies) : 1;
+  const scaleMode = scaleOptions.scaleMode === "global" ? "global" : "article";
+  const globalReferenceMax = Number.isFinite(scaleOptions.globalReferenceMax) && scaleOptions.globalReferenceMax > 1
+    ? scaleOptions.globalReferenceMax
+    : 30;
+  const referenceMax = scaleMode === "global"
+    ? Math.max(2, globalReferenceMax)
+    : Math.max(2, maxFreq);
+
   const sizeFromFrequency = (frequency) => {
-     // Frecuencia 1: mismo tamaño que una ocurrencia individual
+    // Escala dinamica para cualquier rango de frecuencias:
+    // - 1 se mantiene como referencia visual minima
+    // - crecimiento logaritmico para evitar que outliers aplasten valores bajos
+    // - exponente < 1 para separar mejor frecuencias bajas (2, 3, 4...)
     if (frequency <= 1) return 9;
-    if (maxFreq <= 1) return 9;
-    const minRepeated = Math.max(2, minFreq);
-    if (maxFreq === minRepeated) return 26;
-    const t = (frequency - minRepeated) / (maxFreq - minRepeated);
-    return 20 + (t * 18);
+    if (referenceMax <= 1) return 9;
+
+    const minRepeated = 2;
+    const minSize = 16;
+    const maxSize = 60;
+    const alpha = 0.65;
+
+    if (referenceMax <= minRepeated) return minSize;
+
+    const logMin = Math.log(minRepeated);
+    const logMax = Math.log(referenceMax);
+    const logF = Math.log(Math.max(frequency, minRepeated));
+    const t = (logF - logMin) / Math.max(logMax - logMin, 1e-9);
+    const eased = Math.pow(Math.max(0, Math.min(1, t)), alpha);
+    return minSize + (maxSize - minSize) * eased;
   };
 
-  const groupedAggregates = {};
+  const groupedByLabel = {};
   aggregates.forEach(item => {
-    if (!groupedAggregates[item.label]) groupedAggregates[item.label] = [];
-    groupedAggregates[item.label].push({
+    if (!groupedByLabel[item.label]) groupedByLabel[item.label] = [];
+    const isExpandedAggregate = Boolean(expandedKey) && item.key === expandedKey;
+    const baseSize = sizeFromFrequency(item.frequency);
+    const expandedSize = Math.max(14, baseSize * 0.55);
+    groupedByLabel[item.label].push({
       ...item,
       isAggregate: true,
-      symbolSize: sizeFromFrequency(item.frequency)
+      symbolSize: isExpandedAggregate ? expandedSize : baseSize,
+      // Mantenerla visible para colapsar, pero menos invasiva al expandir.
+      symbol: "circle",
+      itemStyle: isExpandedAggregate
+        ? { opacity: 0.28, borderWidth: 2 }
+        : undefined,
+      // Solo freq=1 provoca foco por categoria (como modo original).
+      emphasis: item.frequency <= 1
+        ? {
+            focus: "series",
+            scale: true,
+            itemStyle: { borderColor: "#333", borderWidth: 2 }
+          }
+        : {
+            scale: true,
+            itemStyle: { borderColor: "#333", borderWidth: 2 }
+          }
     });
   });
 
-  const aggregateSeries = Object.keys(groupedAggregates).map(label => ({
+  if (expandedKey) {
+    const expanded = aggregates.find(item => item.key === expandedKey);
+    if (expanded && expanded.occurrences.length) {
+      if (!groupedByLabel[expanded.label]) groupedByLabel[expanded.label] = [];
+      expanded.occurrences.forEach((p) => {
+        groupedByLabel[expanded.label].push({
+          value: [Number(p.x || 0), Number(p.y || 0)],
+          id: p.id,
+          entity: p.entity,
+          label: p.label,
+          displayLabel: expanded.label,
+          sentence_text: p.sentence_text,
+          text_index: p.text_index,
+          isOccurrence: true,
+          parentKey: expanded.key,
+          symbolSize: 9,
+          z: 5,
+          emphasis: {
+            focus: "series",
+            scale: true,
+            itemStyle: { borderColor: "#222", borderWidth: 2 }
+          }
+        });
+      });
+    }
+  }
+
+  return Object.keys(groupedByLabel).map(label => ({
+    id: `freq-${label}`,
     name: label,
     type: "scatter",
-    data: groupedAggregates[label],
+    data: groupedByLabel[label],
     symbolSize: (_value, params) => params?.data?.symbolSize ?? 16,
     itemStyle: {
       color: CATEGORY_COLORS[label] || "#666",
@@ -263,7 +407,10 @@ function buildFrequencySeries(data, expandedKey) {
     },
     label: {
       show: true,
-      formatter: p => `${p.data.entity} (${p.data.frequency})`,
+      formatter: p => {
+        if (p?.data?.isOccurrence) return "";
+        return `${p.data.entity} (${p.data.frequency})`;
+      },
       position: "top",
       distance: 6,
       fontSize: 10,
@@ -271,7 +418,6 @@ function buildFrequencySeries(data, expandedKey) {
       fontWeight: "normal"
     },
     emphasis: {
-      focus: "series",
       scale: true,
       itemStyle: {
         borderColor: "#333",
@@ -279,53 +425,6 @@ function buildFrequencySeries(data, expandedKey) {
       }
     }
   }));
-
-  if (!expandedKey) return aggregateSeries;
-
-  const expanded = aggregates.find(item => item.key === expandedKey);
-  if (!expanded || !expanded.occurrences.length) return aggregateSeries;
-
-  const occurrences = [];
-  expanded.occurrences.forEach((p) => {
-    const occurrencePoint = {
-      value: [
-        Number(p.x || 0),
-        Number(p.y || 0)
-      ],
-      id: p.id,
-      entity: p.entity,
-      label: p.label,
-      displayLabel: expanded.label,
-      sentence_text: p.sentence_text,
-      text_index: p.text_index,
-      isOccurrence: true
-    };
-    occurrences.push(occurrencePoint);
-  });
-
-  const occurrenceSeries = [{
-    name: expanded.label,
-    type: "scatter",
-    data: occurrences,
-    symbolSize: 9,
-    itemStyle: {
-      color: CATEGORY_COLORS[expanded.label] || "#666",
-      opacity: 1,
-      borderColor: "#ffffff",
-      borderWidth: 1
-    },
-    label: { show: false },
-    emphasis: {
-      focus: "self",
-      scale: true,
-      itemStyle: {
-        borderColor: "#222",
-        borderWidth: 2
-      }
-    }
-  }];
-
-  return [...aggregateSeries, ...occurrenceSeries];
 }
 
 function highlightEntityInPanel(id) {

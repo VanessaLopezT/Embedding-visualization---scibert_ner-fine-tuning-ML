@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
@@ -218,9 +218,9 @@
       <option value="example">Datos de ejemplo</option>
     </select>
   </div>
-  <h2>SciBERT – Entity Embeddings Visualization</h2>
+  <h2>SciBERT &ndash; Entity Embeddings Visualization</h2>
   <div class="header-right">
-    <button class="upload-btn" id="upload-article-btn">Cargar Artículo</button>
+    <button class="upload-btn" id="upload-article-btn">Cargar Art&iacute;culo</button>
     <span class="loading-indicator" id="loading">Procesando...</span>
     <span id="entities-summary" style="font-size:12px; color:#666; margin-left:12px;">Entidades: -</span>
     <input type="file" id="file-input" accept=".txt,.pdf" />
@@ -240,16 +240,23 @@
 
 <div id="container" style="flex:1; min-height:0; overflow:hidden;">
   <div id="chart-panel" style="height: 100%; overflow: hidden;">
-    <button id="chart-mode-btn" class="chart-mode-btn" type="button" aria-label="Cambiar modo de gráfica">Vista: Original</button>
-    <div class="chart-help" aria-label="Ayuda de la gráfica">
-      <button class="chart-help-btn" type="button" aria-label="¿Qué muestra esta gráfica?">?</button>
-      <div class="chart-help-tooltip" role="tooltip">
-        <strong>¿Qué ves aquí?</strong><br>
-        Cada punto es una entidad detectada en el texto (por ejemplo: modelo, métrica, técnica, etc.).<br><br>
-        <strong>Dimensión 1 y Dimensión 2</strong> no son variables reales del artículo: son una proyección 2D para visualizar cercanía semántica.<br><br>
-        Si dos puntos están cerca, suelen aparecer en contextos parecidos. Si están lejos, su contexto suele ser distinto.<br><br>
-        Puedes ver palabras repetidas porque la misma entidad puede aparecer en distintos párrafos/contextos y se representa más de una vez.<br><br>
-        Si cambias a <strong>Vista: Frecuencia</strong>, cada palabra aparece una sola vez y el tamaño del punto representa cuántas veces se detectó.
+    <button id="chart-mode-btn" class="chart-mode-btn" type="button" aria-label="Cambiar modo de gr&aacute;fica">Vista: Original</button>
+    <div id="frequency-scale-controls" style="position:absolute; top:12px; left:12px; z-index:6; background:rgba(255,255,255,0.92); border:1px solid #e0e0e0; border-radius:6px; padding:6px 8px; display:none; align-items:center; gap:6px; font-size:12px; color:#444;">
+      <label for="frequency-scale-select" style="font-size:12px;">Escala:</label>
+      <select id="frequency-scale-select" style="font-size:12px; border:1px solid #d0d0d0; border-radius:4px; padding:2px 4px;">
+        <option value="article">Por art&iacute;culo</option>
+        <option value="global">Global</option>
+      </select>
+    </div>
+    <div class="chart-help" aria-label="Ayuda de la gr&aacute;fica">
+      <button class="chart-help-btn" type="button" aria-label="&iquest;Qu&eacute; muestra esta gr&aacute;fica?">?</button>
+            <div class="chart-help-tooltip" role="tooltip">
+        <strong>&iquest;Qu&eacute; ves aqu&iacute;?</strong><br>
+        Cada punto es una entidad detectada en el texto (por ejemplo: modelo, m&eacute;trica, t&eacute;cnica, etc.).<br><br>
+        <strong>Dimensi&oacute;n 1 y Dimensi&oacute;n 2</strong> no son variables reales del art&iacute;culo: son una proyecci&oacute;n 2D para visualizar cercan&iacute;a sem&aacute;ntica.<br><br>
+        Si dos puntos est&aacute;n cerca, suelen aparecer en contextos parecidos. Si est&aacute;n lejos, su contexto suele ser distinto.<br><br>
+        Puedes ver palabras repetidas porque la misma entidad puede aparecer en distintos p&aacute;rrafos/contextos y se representa m&aacute;s de una vez.<br><br>
+        Si cambias a <strong>Vista: Frecuencia</strong>, cada palabra aparece una sola vez y el tama&ntilde;o del punto representa cu&aacute;ntas veces se detect&oacute;.
       </div>
     </div>
     <div id="tsne-chart"></div>
@@ -262,11 +269,11 @@
       <h2 style="text-align:center; margin-bottom: 8px;">Texto Analizado</h2>
       <div style="text-align:center;">
         <span id="data-source" style="font-size: 12px; color: #999;">
-          <span id="data-source-label">Datos de ejemplo</span> ·
-          <button id="btn-entities-only" class="data-toggle-btn active" type="button">Párrafos con entidades: -</button>
-          ·
-          <button id="btn-all-paragraphs" class="data-toggle-btn" type="button">Párrafos totales: -</button>
-          ·
+          <span id="data-source-label">Datos de ejemplo</span> &middot;
+          <button id="btn-entities-only" class="data-toggle-btn active" type="button">P&aacute;rrafos con entidades: -</button>
+          &middot;
+          <button id="btn-all-paragraphs" class="data-toggle-btn" type="button">P&aacute;rrafos totales: -</button>
+          &middot;
           <span id="entities-count">Entidades: -</span>
         </span>
       </div>
@@ -278,10 +285,10 @@
 </div>
 
 <script type="module">
-  import { loadTSNEData } from "{% static 'js/dataLoader.js' %}?v=20260222l";
-  import { initTSNEChart } from "{% static 'js/tsneChart.js' %}?v=20260222l";
-  import { initTSNEFrequencyChart, resetFrequencyExpansion } from "{% static 'js/tsneChartFrequency.js' %}?v=20260222l";
-  import { renderText } from "{% static 'js/textPanel.js' %}?v=20260222l";
+  import { loadTSNEData } from "{% static 'js/dataLoader.js' %}?v=20260301t";
+  import { initTSNEChart } from "{% static 'js/tsneChart.js' %}?v=20260301t";
+  import { initTSNEFrequencyChart, resetFrequencyExpansion } from "{% static 'js/tsneChartFrequency.js' %}?v=20260301t";
+  import { renderText } from "{% static 'js/textPanel.js' %}?v=20260301t";
 
   const config = {
     exampleUrl: "/api/example/tsne",
@@ -304,7 +311,11 @@
   const btnAllParagraphs = document.getElementById("btn-all-paragraphs");
   const entitiesCountEl = document.getElementById("entities-count");
   const chartModeBtn = document.getElementById("chart-mode-btn");
+  const frequencyScaleControls = document.getElementById("frequency-scale-controls");
+  const frequencyScaleSelect = document.getElementById("frequency-scale-select");
   let chartViewMode = "standard";
+  let frequencyScaleMode = "article";
+  let globalFrequencyReferenceMax = 1;
 
   const panelState = {
     source: "example",
@@ -332,7 +343,11 @@
       .split(/\r?\n\s*\r?\n/)
       .map(p => p.trim())
       .filter(Boolean)
-      .filter(p => !/^TITLE:\s*/i.test(p));
+      .flatMap(p => {
+        if (!/^TITLE:\s*/i.test(p)) return [p];
+        const withoutTitle = p.replace(/^TITLE:\s*[^\r\n]*\s*/i, "").trim();
+        return withoutTitle ? [withoutTitle] : [];
+      });
   }
 
   function updateDataSourceLabel(source, data, totalParagraphs = null) {
@@ -346,16 +361,16 @@
       entitiesCountEl.style.color = baseColor;
     }
     if (btnEntitiesOnly) {
-      btnEntitiesOnly.textContent = `Párrafos con entidades: ${paragraphsWithEntities}`;
+      btnEntitiesOnly.textContent = `P\u00E1rrafos con entidades: ${paragraphsWithEntities}`;
       btnEntitiesOnly.classList.toggle("active", panelState.mode === "entities");
     }
     if (btnAllParagraphs) {
       const totalText = typeof totalParagraphs === "number" ? totalParagraphs : "-";
-      btnAllParagraphs.textContent = `Párrafos totales: ${totalText}`;
+      btnAllParagraphs.textContent = `P\u00E1rrafos totales: ${totalText}`;
       btnAllParagraphs.classList.toggle("active", panelState.mode === "all");
     }
     if (source === "article") {
-      if (dataSourceLabelEl) dataSourceLabelEl.textContent = "Datos del artículo";
+      if (dataSourceLabelEl) dataSourceLabelEl.textContent = "Datos del art\u00EDculo";
     } else {
       if (dataSourceLabelEl) dataSourceLabelEl.textContent = "Datos de ejemplo";
       if (btnAllParagraphs) {
@@ -379,6 +394,9 @@
   function updateChartModeButton() {
     if (!chartModeBtn) return;
     chartModeBtn.textContent = chartViewMode === "frequency" ? "Vista: Frecuencia" : "Vista: Original";
+    if (frequencyScaleControls) {
+      frequencyScaleControls.style.display = chartViewMode === "frequency" ? "flex" : "none";
+    }
   }
 
   function getCurrentAxisRange(chart) {
@@ -400,10 +418,32 @@
   function renderChartByMode(data, axisRange = null) {
     if (!currentChart) return;
     if (chartViewMode === "frequency") {
-      initTSNEFrequencyChart(currentChart, data, axisRange);
+      if (frequencyScaleMode === "global") {
+        globalFrequencyReferenceMax = Math.max(globalFrequencyReferenceMax, getMaxEntityFrequency(data));
+      }
+      initTSNEFrequencyChart(currentChart, data, axisRange, {
+        scaleMode: frequencyScaleMode,
+        globalReferenceMax: Math.max(2, globalFrequencyReferenceMax)
+      });
       return;
     }
     initTSNEChart(currentChart, data, axisRange);
+  }
+
+  function getMaxEntityFrequency(data) {
+    if (!Array.isArray(data) || data.length === 0) return 1;
+    const counts = new Map();
+    data.forEach(p => {
+      const key = String(p?.entity || "").trim().toLowerCase().replace(/\s+/g, " ");
+      if (!key) return;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    if (counts.size === 0) return 1;
+    let max = 1;
+    counts.forEach(v => {
+      if (v > max) max = v;
+    });
+    return max;
   }
 
   function hideProgress() {
@@ -498,7 +538,7 @@
   async function refreshArticleList(selectedId = null) {
     try {
       const response = await fetch(config.listUrl);
-      if (!response.ok) throw new Error("No se pudo cargar la lista de artículos");
+      if (!response.ok) throw new Error("No se pudo cargar la lista de art\u00EDculos");
       const result = await response.json();
 
       const select = document.getElementById("article-select");
@@ -516,7 +556,7 @@
         select.value = currentValue;
       }
     } catch (error) {
-      console.error("Error listando artículos:", error);
+      console.error("Error listando art\u00EDculos", error);
     }
   }
 
@@ -550,6 +590,16 @@
       }
     });
     updateChartModeButton();
+  }
+
+  if (frequencyScaleSelect) {
+    frequencyScaleSelect.value = frequencyScaleMode;
+    frequencyScaleSelect.addEventListener("change", () => {
+      frequencyScaleMode = frequencyScaleSelect.value === "global" ? "global" : "article";
+      if (chartViewMode !== "frequency" || !currentChart || !Array.isArray(panelState.data)) return;
+      const axisRangeFromCurrent = getCurrentAxisRange(currentChart);
+      renderChartByMode(panelState.data, axisRangeFromCurrent);
+    });
   }
 
   // Selector
@@ -631,13 +681,13 @@
       } else {
         isUploadInProgress = false;
         hideProgress();
-        alert(`Error: ${result.error || "No se pudo procesar el artículo"}`);
+        alert(`Error: ${result.error || "No se pudo procesar el art\u00EDculo"}`);
       }
     } catch (error) {
       isUploadInProgress = false;
       hideProgress();
       console.error("Error:", error);
-      alert("Error al procesar artículo: " + error.message);
+      alert("Error al procesar art\u00EDculo: " + error.message);
     } finally {
       uploadBtn.disabled = false;
       loadingIndicator.classList.remove("active");
@@ -681,7 +731,7 @@
         const totalChunks = progressInfo.total_chunks;
 
         const baseLabel = stage === "completed" ? "Completado" :
-          stage === "failed" ? "Falló" :
+          stage === "failed" ? "Fall\u00F3" :
           stage === "queued" ? "En cola..." :
           stage === "ner" ? "Extrayendo entidades (NER)..." :
           stage === "tsne" ? "Generando t-SNE..." :
@@ -690,24 +740,24 @@
           ? ` ${processed}/${total}`
           : "";
         const chunkLabel = (typeof currentText === "number" && typeof currentChunk === "number" && typeof totalChunks === "number")
-          ? ` · texto ${currentText} chunk ${currentChunk}/${totalChunks}`
+          ? ` \u00B7 texto ${currentText} chunk ${currentChunk}/${totalChunks}`
           : "";
         const etaLabel = (typeof eta === "number" && eta > 0)
-          ? ` · ETA ${formatEta(eta)}`
+          ? ` \u00B7 ETA ${formatEta(eta)}`
           : "";
         const entitiesLabel = (typeof entitiesExtracted === "number")
-          ? ` · entidades ${entitiesExtracted}`
+          ? ` \u00B7 entidades ${entitiesExtracted}`
           : "";
         progressLabel.textContent = `${baseLabel}${countLabel}${chunkLabel}${etaLabel}${entitiesLabel}`;
 
         if (entitiesInfo) {
           const paragraphsLabel = (typeof processed === "number" && typeof total === "number" && total > 0)
-            ? `Párrafos: ${processed}/${total}`
-            : "Párrafos: -";
+            ? `P\u00E1rrafos: ${processed}/${total}`
+            : "P\u00E1rrafos: -";
           const entitiesCountLabel = (typeof entitiesExtracted === "number")
             ? `Entidades: ${entitiesExtracted}`
             : "Entidades: -";
-          entitiesInfo.textContent = `${paragraphsLabel} · ${entitiesCountLabel}`;
+          entitiesInfo.textContent = `${paragraphsLabel} \u00B7 ${entitiesCountLabel}`;
         }
         if (entitiesSummary && typeof entitiesExtracted === "number") {
           entitiesSummary.textContent = `Entidades: ${entitiesExtracted}`;
@@ -721,7 +771,7 @@
           await loadAndRenderData("article", articleId);
           isUploadInProgress = false;
           hideProgress();
-          alert(`Artículo procesado correctamente: ${fileName}`);
+          alert(`Art\u00EDculo procesado correctamente: ${fileName}`);
           break;
         }
 
@@ -738,7 +788,7 @@
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
-    // Mantener visible la información final de párrafos y entidades
+    // Mantener visible la informaciÃƒÆ’Ã‚Â³n final de pÃƒÆ’Ã‚Â¡rrafos y entidades
     if (!isUploadInProgress) {
       hideProgress();
     }
