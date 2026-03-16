@@ -1,18 +1,21 @@
 from django.conf import settings
 from django.conf.urls.static import static
 from django.urls import path
-
 from articles import views
-
 
 urlpatterns = [
     path("", views.index, name="index"),
+    # Modelos disponibles
+    path("api/models", views.get_models, name="get_models"),
+    # Gestión de artículos
     path("api/articles", views.list_articles, name="list_articles"),
     path("api/articles/upload", views.upload_article, name="upload_article"),
     path("api/articles/<str:article_id>/tsne", views.get_article_tsne, name="get_article_tsne"),
     path("api/articles/<str:article_id>/ner", views.get_article_ner, name="get_article_ner"),
     path("api/articles/<str:article_id>/meta", views.get_article_meta, name="get_article_meta"),
     path("api/articles/<str:article_id>/cleaned-text", views.get_article_cleaned_text, name="get_article_cleaned_text"),
+    path("api/articles/<str:article_id>/reprocess", views.reprocess_article, name="reprocess_article"),
+    # Datos de ejemplo por modelo
     path("api/example/tsne", views.get_example_tsne, name="get_example_tsne"),
 ]
 

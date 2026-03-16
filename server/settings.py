@@ -1,12 +1,11 @@
 """
-Django settings for SciBERT NER web app.
+Django settings — SciBERT / PubMedBERT dual-model NER visualization app.
 """
 from pathlib import Path
 
-
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = "dev-secret-key-change-me"
+SECRET_KEY = "dev-secret-key-change-in-production"
 DEBUG = True
 ALLOWED_HOSTS = ["*"]
 
@@ -53,10 +52,20 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "/static/"
-STATICFILES_DIRS = [
-    BASE_DIR / "web",
-]
+STATICFILES_DIRS = [BASE_DIR / "web"]
 
+# Directorio de datos (artículos procesados y datos de ejemplo)
 DATA_DIR = BASE_DIR / "data"
+
+# ─────────────────────────────────────────────────────────────
+# MODEL CHECKPOINTS
+# Rutas relativas a BASE_DIR (o absolutas).
+# ─────────────────────────────────────────────────────────────
+
+# Modelo ML / Technology (SciBERT fine-tuned)
+MODEL_TECH_CHECKPOINT = r"scibert_20260304_171958\best_model"
+
+# Modelo Canine Mammary Tumor (PubMedBERT fine-tuned)
+MODEL_CMT_CHECKPOINT = r"biobert_20260304_200826\best_model"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

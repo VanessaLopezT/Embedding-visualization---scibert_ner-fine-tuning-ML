@@ -199,7 +199,8 @@ html, body {
   border-radius: 4px;
   box-shadow: 0 0 0 3px rgba(253, 216, 53, 0.6), 0 2px 8px rgba(0, 0, 0, 0.15);
   font-weight: 600;
-  border-bottom: none;
+  border-bottom: none !important;
+  /* Mantener el color original del label aunque haya color inline */
 }
 
 /* RESPONSIVE - En pantallas pequeñas, el texto se muestra abajo */
@@ -217,4 +218,64 @@ html, body {
     width: 100%;
     height: 50%;
   }
+}
+
+/* ══════════════════════════════════════════════════════════
+   ENTIDADES CMT — PubMedBERT (Canine Mammary Tumor)
+   ══════════════════════════════════════════════════════════ */
+
+/* Pathology / Tumor Type */
+.entity.pathology\/tumor\ type,
+.entity[class*="pathology"] {
+  color: #e63946;
+  border-bottom: 2px solid #e63946;
+}
+
+/* Species / Subject */
+.entity.species\/subject,
+.entity[class*="species"] {
+  color: #2a9d8f;
+  border-bottom: 2px solid #2a9d8f;
+}
+
+/* Biomarkers and Molecules */
+.entity.biomarkers\ and\ molecules,
+.entity[class*="biomarker"] {
+  color: #c9960a;
+  border-bottom: 2px solid #e9c46a;
+}
+
+/* Histopathology and Grade */
+.entity.histopathology\ and\ grade,
+.entity[class*="histopath"] {
+  color: #d4701a;
+  border-bottom: 2px solid #f4a261;
+}
+
+/* Staging and Prognosis */
+.entity.staging\ and\ prognosis,
+.entity[class*="staging"] {
+  color: #3a7ca5;
+  border-bottom: 2px solid #a8dadc;
+}
+
+/* Diagnostic Imaging and Techniques */
+.entity.diagnostic\ imaging\ and\ techniques,
+.entity[class*="diagnostic"] {
+  color: #457b9d;
+  border-bottom: 2px solid #457b9d;
+}
+
+/* Treatment */
+.entity.treatment,
+.entity.TREATMENT {
+  color: #6a4c93;
+  border-bottom: 2px solid #6a4c93;
+}
+
+/* Comparative Oncology */
+.entity.comparative\ oncology,
+.entity[class*="comparative"] {
+  color: #5a8a00;
+  border-bottom: 2px solid #80b918;
 }

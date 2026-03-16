@@ -19,3 +19,47 @@ __pycache__/
 
 # Modelos grandes
 *.safetensors
+
+# ══════════════════════════════════════════════════════
+# MODELOS — demasiado pesados para git
+# ══════════════════════════════════════════════════════
+scibert_*/
+biobert_*/
+pubmedbert_*/
+**/best_model/
+**/checkpoint-*/
+
+# ══════════════════════════════════════════════════════
+# ARTÍCULOS SUBIDOS Y DATOS PROCESADOS
+# ══════════════════════════════════════════════════════
+data/articles/
+data/example/tsne_cmt.json
+ 
+ 
+# ══════════════════════════════════════════════════════
+# ARCHIVOS GENERADOS POR EL PROCESAMIENTO
+# ══════════════════════════════════════════════════════
+*.npz
+*.npy
+tmp_ner.json
+ner_results*.json
+entity_embeddings*.npz
+tsne_data*.json
+ 
+# ══════════════════════════════════════════════════════
+# DJANGO
+# ══════════════════════════════════════════════════════
+db.sqlite3
+db.sqlite3-journal
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+migrations/
+
+# ══════════════════════════════════════════════════════
+# ARCHIVOS TEMPORALES DE PROCESAMIENTO
+# ══════════════════════════════════════════════════════
+processing/temp_article*
+tmp_*/
+ 

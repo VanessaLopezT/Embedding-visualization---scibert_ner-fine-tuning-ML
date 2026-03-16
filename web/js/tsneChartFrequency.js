@@ -4,7 +4,7 @@
  * Click en un agregado despliega ocurrencias individuales.
  */
 
-import { CATEGORY_COLORS } from "./categoryColors.js";
+import { getColorForLabel } from "./categoryColors.js";
 
 let expandedEntityKey = null;
 let frequencyAxisRange = null;
@@ -400,7 +400,7 @@ function buildFrequencySeries(data, expandedKey, scaleOptions = {}) {
     data: groupedByLabel[label],
     symbolSize: (_value, params) => params?.data?.symbolSize ?? 16,
     itemStyle: {
-      color: CATEGORY_COLORS[label] || "#666",
+      color: getColorForLabel(label),
       opacity: 1,
       borderColor: "#ffffff",
       borderWidth: 1

@@ -2,9 +2,11 @@
  * textPanel.js
  * Renderiza el texto analizado con las entidades encontradas.
  * - Agrupa entidades por sentencia/frase
- * - Colorea cada entidad según su tipo (model, metric, technique)
+ * - Colorea cada entidad según su tipo (tech o CMT)
  * - Conecta con los eventos de la gráfica para resaltar en amarillo
  */
+
+import { getColorForLabel } from "./categoryColors.js";
 
 let entityMap = {};
 
@@ -166,7 +168,8 @@ function buildHtmlFromRanges(text, ranges) {
   for (const r of ranges) {
     if (r.start < cursor) continue;
     result += escapeHtml(text.slice(cursor, r.start));
-    result += `<span class="entity ${String(r.label || "").toLowerCase()}" data-id="${r.id}">${escapeHtml(text.slice(r.start, r.end))}</span>`;
+    const _color = getColorForLabel(r.label);
+    result += `<span class="entity" data-id="${r.id}" data-label="${escapeHtml(String(r.label || ""))}" style="color:${_color}; border-bottom: 2px solid ${_color};">${escapeHtml(text.slice(r.start, r.end))}</span>`;
     cursor = r.end;
   }
   result += escapeHtml(text.slice(cursor));

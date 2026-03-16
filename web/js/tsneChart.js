@@ -3,7 +3,7 @@
  * Gestiona la visualizaciÃ³n base de la grÃ¡fica t-SNE con ECharts.
  */
 
-import { CATEGORY_COLORS } from "./categoryColors.js";
+import { getColorForLabel } from "./categoryColors.js";
 
 let globalChart = null;
 
@@ -32,7 +32,7 @@ export function initTSNEChart(chart, data, axisRange = null) {
     data: groups[label],
     symbolSize: 16,
     itemStyle: {
-      color: CATEGORY_COLORS[label] || "#666"
+      color: getColorForLabel(label)
     },
 
     label: {

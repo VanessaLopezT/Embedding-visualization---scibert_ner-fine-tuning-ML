@@ -5,24 +5,23 @@
   <title>SciBERT NER Visualization</title>
 
   {% load static %}
-  <link rel="stylesheet" href="{% static 'css/style.css' %}?v=20260222c" />
-  <link rel="stylesheet" href="{% static 'css/textPanel.css' %}?v=20260222c" />
+  <link rel="stylesheet" href="{% static 'css/style.css' %}?v=20260315" />
+  <link rel="stylesheet" href="{% static 'css/textPanel.css' %}?v=20260315" />
   <style>
     html, body { height: 100%; overflow: hidden !important; }
   </style>
 
   <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
   <style>
+    /* ── HEADER ── */
     .page-header {
       padding: 16px 24px;
       background: #ffffff;
       border-bottom: 1px solid #e0e0e0;
       position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
+      top: 0; left: 0; right: 0;
       z-index: 10;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -37,9 +36,9 @@
       text-align: center;
       flex: 1;
     }
-    #container {
-      margin-top: 70px;
-    }
+    #container { margin-top: 70px; }
+
+    /* ── CONTROLES HEADER ── */
     .upload-btn {
       padding: 8px 16px;
       background: #0d6efd;
@@ -51,17 +50,10 @@
       font-weight: 500;
       transition: all 0.2s;
     }
-    .upload-btn:hover {
-      background: #0b5ed7;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    }
-    .upload-btn:disabled {
-      background: #ccc;
-      cursor: not-allowed;
-    }
-    #file-input {
-      display: none;
-    }
+    .upload-btn:hover { background: #0b5ed7; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .upload-btn:disabled { background: #ccc; cursor: not-allowed; }
+    #file-input { display: none; }
+
     .loading-indicator {
       display: none;
       color: #0d6efd;
@@ -74,11 +66,18 @@
       display: inline;
       animation: fade-pulse 1.5s ease-in-out infinite;
     }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
     .header-right {
       display: flex;
       align-items: center;
       gap: 10px;
     }
+
     .article-select {
       padding: 6px 10px;
       border: 1px solid #d0d0d0;
@@ -87,6 +86,22 @@
       color: #333;
       min-width: 220px;
     }
+
+    /* Selector de modelo */
+    .model-select {
+      padding: 6px 10px;
+      border: 1px solid #9ec5fe;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #0d6efd;
+      background: #f0f6ff;
+      font-weight: 500;
+      cursor: pointer;
+      min-width: 160px;
+    }
+    .model-select:hover { background: #e0eeff; }
+
+    /* ── BOTONES TOGGLE ── */
     .data-toggle-btn {
       font-size: 12px;
       border: 1px solid #d0d7de;
@@ -99,110 +114,60 @@
       line-height: 1.35;
     }
     .data-toggle-btn:hover:not(:disabled) {
-      background: #eef4ff;
-      border-color: #9ec5fe;
-      color: #0a58ca;
+      background: #eef4ff; border-color: #9ec5fe; color: #0a58ca;
       transform: translateY(-1px);
     }
-    .data-toggle-btn:focus-visible {
-      outline: 2px solid rgba(13, 110, 253, 0.35);
-      outline-offset: 1px;
-    }
     .data-toggle-btn.active {
-      background: #e7f1ff;
-      border-color: #0d6efd;
-      color: #0d6efd;
-      font-weight: 600;
-      box-shadow: 0 1px 3px rgba(13, 110, 253, 0.18);
+      background: #e7f1ff; border-color: #0d6efd; color: #0d6efd;
+      font-weight: 600; box-shadow: 0 1px 3px rgba(13,110,253,0.18);
     }
-    .data-toggle-btn:disabled {
-      cursor: not-allowed;
-      opacity: 0.6;
-      background: #f2f3f5;
-      border-color: #e5e7eb;
-      color: #9aa0a6;
-    }
-    .chart-help {
-      position: absolute;
-      top: 10px;
-      right: 12px;
-      z-index: 3;
-    }
+    .data-toggle-btn:disabled { cursor: not-allowed; opacity: 0.6; }
+
+    /* ── BOTONES CHART ── */
     .chart-mode-btn {
-      position: absolute;
-      top: 10px;
-      right: 48px;
-      z-index: 3;
-      border: 1px solid #9ec5fe;
-      background: #ffffff;
-      color: #0d6efd;
-      font-size: 12px;
-      font-weight: 600;
-      border-radius: 999px;
-      padding: 4px 10px;
-      cursor: pointer;
-      box-shadow: 0 1px 3px rgba(13, 110, 253, 0.14);
+      position: absolute; top: 10px; right: 48px; z-index: 3;
+      border: 1px solid #9ec5fe; background: #ffffff; color: #0d6efd;
+      font-size: 12px; font-weight: 600; border-radius: 999px;
+      padding: 4px 10px; cursor: pointer;
+      box-shadow: 0 1px 3px rgba(13,110,253,0.14);
       transition: all 0.15s ease;
     }
-    .chart-mode-btn:hover {
-      border-color: #0d6efd;
-      background: #e7f1ff;
-      color: #0b5ed7;
-    }
-    .chart-mode-btn:focus-visible {
-      outline: 2px solid rgba(13, 110, 253, 0.35);
-      outline-offset: 1px;
+    .chart-mode-btn:hover { border-color: #0d6efd; background: #e7f1ff; color: #0b5ed7; }
+
+    .chart-help {
+      position: absolute; top: 10px; right: 12px; z-index: 3;
     }
     .chart-help-btn {
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      border: 1px solid #9ec5fe;
-      background: #e7f1ff;
-      color: #0d6efd;
-      font-size: 14px;
-      font-weight: 700;
-      line-height: 1;
-      cursor: help;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 1px 3px rgba(13, 110, 253, 0.18);
-    }
-    .chart-help-btn:hover {
-      border-color: #0d6efd;
-      background: #dbe9ff;
-      color: #0b5ed7;
+      width: 24px; height: 24px; border-radius: 50%;
+      border: 1px solid #9ec5fe; background: #e7f1ff; color: #0d6efd;
+      font-size: 14px; font-weight: 700; line-height: 1; cursor: help;
+      display: inline-flex; align-items: center; justify-content: center;
+      box-shadow: 0 1px 3px rgba(13,110,253,0.18);
     }
     .chart-help-tooltip {
-      position: absolute;
-      top: 30px;
-      right: 0;
-      width: 320px;
-      max-width: min(320px, 70vw);
-      background: #ffffff;
-      color: #495057;
-      border: 1px solid #dbe6f5;
-      padding: 10px 12px;
-      border-radius: 8px;
-      font-size: 12px;
-      line-height: 1.45;
-      text-align: left;
-      opacity: 0;
-      transform: translateY(-4px);
-      pointer-events: none;
+      position: absolute; top: 30px; right: 0;
+      width: 320px; max-width: min(320px, 70vw);
+      background: #ffffff; color: #495057;
+      border: 1px solid #dbe6f5; padding: 10px 12px; border-radius: 8px;
+      font-size: 12px; line-height: 1.45; text-align: left;
+      opacity: 0; transform: translateY(-4px); pointer-events: none;
       transition: opacity 0.15s ease, transform 0.15s ease;
-      box-shadow: 0 8px 20px rgba(13, 110, 253, 0.12);
+      box-shadow: 0 8px 20px rgba(13,110,253,0.12);
     }
     .chart-help:hover .chart-help-tooltip,
     .chart-help:focus-within .chart-help-tooltip {
-      opacity: 1;
-      transform: translateY(0);
+      opacity: 1; transform: translateY(0);
     }
-    .chart-help-tooltip strong {
-      color: #0d6efd;
-      font-weight: 700;
+    .chart-help-tooltip strong { color: #0d6efd; font-weight: 700; }
+
+    /* ── BARRA DE PROGRESO ── */
+    #progress-container {
+      display: none;
+      position: fixed; top: 70px; left: 24px; right: 24px;
+      z-index: 9; padding: 4px 8px;
+      background: #ffffff; border: 1px solid #ececec; border-radius: 6px;
     }
+
     @keyframes fade-pulse {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.6; }
@@ -212,13 +177,22 @@
 <body style="overflow:hidden;">
 <div id="app" style="height:100vh; display:flex; flex-direction:column; overflow:hidden;">
 
+<!-- ── HEADER ── -->
 <div class="page-header">
   <div class="header-left">
+    <!-- Selector de artículo -->
     <select id="article-select" class="article-select">
       <option value="example">Datos de ejemplo</option>
     </select>
+    <!-- Selector de modelo (tech / cmt) -->
+    <select id="model-select" class="model-select" title="Seleccionar modelo NER">
+      <option value="tech">ML / Technology</option>
+      <option value="cmt">Canine Mammary Tumor</option>
+    </select>
   </div>
+
   <h2>SciBERT &ndash; Entity Embeddings Visualization</h2>
+
   <div class="header-right">
     <button class="upload-btn" id="upload-article-btn">Cargar Art&iacute;culo</button>
     <span class="loading-indicator" id="loading">Procesando...</span>
@@ -227,10 +201,12 @@
   </div>
 </div>
 
-<div id="progress-container" style="display:none; position:fixed; top:70px; left:24px; right:24px; z-index:9; padding:4px 8px; background:#ffffff; border:1px solid #ececec; border-radius:6px;">
+<!-- ── BARRA DE PROGRESO ── -->
+<div id="progress-container">
   <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:11px; color:#555; margin-bottom:4px;">
     <span id="progress-label">Procesando...</span>
-    <button id="progress-close" type="button" aria-label="Cerrar progreso" style="border:none; background:transparent; color:#999; cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">x</button>
+    <button id="progress-close" type="button" aria-label="Cerrar progreso"
+      style="border:none; background:transparent; color:#999; cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">x</button>
   </div>
   <div style="height:6px; background:#eee; border-radius:6px; overflow:hidden;">
     <div id="progress-bar" style="height:6px; width:0%; background:#0d6efd; transition: width 0.3s;"></div>
@@ -238,32 +214,44 @@
   <div id="entities-info" style="font-size:11px; color:#666; margin-top:4px;"></div>
 </div>
 
+<!-- ── CONTENIDO PRINCIPAL ── -->
 <div id="container" style="flex:1; min-height:0; overflow:hidden;">
+
+  <!-- Panel gráfica t-SNE -->
   <div id="chart-panel" style="height: 100%; overflow: hidden;">
-    <button id="chart-mode-btn" class="chart-mode-btn" type="button" aria-label="Cambiar modo de gr&aacute;fica">Vista: Original</button>
-    <div id="frequency-scale-controls" style="position:absolute; top:12px; left:12px; z-index:6; background:rgba(255,255,255,0.92); border:1px solid #e0e0e0; border-radius:6px; padding:6px 8px; display:none; align-items:center; gap:6px; font-size:12px; color:#444;">
+    <button id="chart-mode-btn" class="chart-mode-btn" type="button">Vista: Original</button>
+
+    <div id="frequency-scale-controls"
+      style="position:absolute; top:12px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
+             border:1px solid #e0e0e0; border-radius:6px; padding:6px 8px;
+             display:none; align-items:center; gap:6px; font-size:12px; color:#444;">
       <label for="frequency-scale-select" style="font-size:12px;">Escala:</label>
       <select id="frequency-scale-select" style="font-size:12px; border:1px solid #d0d0d0; border-radius:4px; padding:2px 4px;">
         <option value="article">Por art&iacute;culo</option>
         <option value="global">Global</option>
       </select>
     </div>
+
     <div class="chart-help" aria-label="Ayuda de la gr&aacute;fica">
       <button class="chart-help-btn" type="button" aria-label="&iquest;Qu&eacute; muestra esta gr&aacute;fica?">?</button>
-            <div class="chart-help-tooltip" role="tooltip">
+      <div class="chart-help-tooltip" role="tooltip">
         <strong>&iquest;Qu&eacute; ves aqu&iacute;?</strong><br>
-        Cada punto es una entidad detectada en el texto (por ejemplo: modelo, m&eacute;trica, t&eacute;cnica, etc.).<br><br>
-        <strong>Dimensi&oacute;n 1 y Dimensi&oacute;n 2</strong> no son variables reales del art&iacute;culo: son una proyecci&oacute;n 2D para visualizar cercan&iacute;a sem&aacute;ntica.<br><br>
-        Si dos puntos est&aacute;n cerca, suelen aparecer en contextos parecidos. Si est&aacute;n lejos, su contexto suele ser distinto.<br><br>
-        Puedes ver palabras repetidas porque la misma entidad puede aparecer en distintos p&aacute;rrafos/contextos y se representa m&aacute;s de una vez.<br><br>
-        Si cambias a <strong>Vista: Frecuencia</strong>, cada palabra aparece una sola vez y el tama&ntilde;o del punto representa cu&aacute;ntas veces se detect&oacute;.
+        Cada punto es una entidad detectada en el texto.<br><br>
+        <strong>Dimensi&oacute;n 1 y Dimensi&oacute;n 2</strong> son una proyecci&oacute;n 2D para visualizar
+        cercan&iacute;a sem&aacute;ntica: puntos cercanos aparecen en contextos parecidos.<br><br>
+        Si cambias a <strong>Vista: Frecuencia</strong>, cada palabra aparece una sola vez
+        y el tama&ntilde;o del punto representa cu&aacute;ntas veces se detect&oacute;.<br><br>
+        Usa el <strong>selector de modelo</strong> (arriba izquierda) para cambiar entre
+        el modelo ML/Tech y el modelo de oncolog&iacute;a veterinaria (CMT).
       </div>
     </div>
+
     <div id="tsne-chart"></div>
   </div>
 
   <div id="resizer"></div>
 
+  <!-- Panel texto analizado -->
   <div id="text-panel" style="height: 100%; overflow-y: auto;">
     <div style="margin-bottom: 15px;">
       <h2 style="text-align:center; margin-bottom: 8px;">Texto Analizado</h2>
@@ -284,38 +272,54 @@
 
 </div>
 
-<script type="module">
-  import { loadTSNEData } from "{% static 'js/dataLoader.js' %}?v=20260301t";
-  import { initTSNEChart } from "{% static 'js/tsneChart.js' %}?v=20260301t";
-  import { initTSNEFrequencyChart, resetFrequencyExpansion } from "{% static 'js/tsneChartFrequency.js' %}?v=20260301t";
-  import { renderText } from "{% static 'js/textPanel.js' %}?v=20260301t";
 
+<!-- ── MODAL: procesar con otro modelo ── -->
+<div id="modal-process-model" style="display:none; position:fixed; inset:0; z-index:200;
+     background:rgba(0,0,0,0.45); align-items:center; justify-content:center;">
+  <div style="background:#fff; border-radius:10px; padding:28px 32px; max-width:420px; width:90%;
+              box-shadow:0 12px 40px rgba(0,0,0,0.2); font-family: inherit;">
+    <h3 style="margin:0 0 10px; font-size:16px; color:#1a1a1a;">Resultados no disponibles</h3>
+    <p id="modal-process-msg" style="margin:0 0 20px; font-size:13px; color:#555; line-height:1.6;">
+      Este artículo aún no ha sido procesado con el modelo seleccionado. ¿Deseas procesarlo ahora?
+    </p>
+    <div style="display:flex; gap:10px; justify-content:flex-end;">
+      <button id="modal-cancel-btn" type="button"
+        style="padding:8px 18px; border:1px solid #d0d0d0; background:#f8f9fa;
+               color:#555; border-radius:5px; cursor:pointer; font-size:13px;">
+        Cancelar
+      </button>
+      <button id="modal-process-btn" type="button"
+        style="padding:8px 18px; border:none; background:#0d6efd;
+               color:#fff; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600;">
+        Procesar ahora
+      </button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { loadTSNEData }                                from "{% static 'js/dataLoader.js' %}?v=20260315";
+  import { initTSNEChart }                               from "{% static 'js/tsneChart.js' %}?v=20260315";
+  import { initTSNEFrequencyChart, resetFrequencyExpansion } from "{% static 'js/tsneChartFrequency.js' %}?v=20260315";
+  import { renderText }                                  from "{% static 'js/textPanel.js' %}?v=20260315";
+
+  // ── URLs de API ──────────────────────────────────────────────────────
   const config = {
-    exampleUrl: "/api/example/tsne",
-    listUrl: "/api/articles",
-    uploadUrl: "/api/articles/upload",
-    tsneUrl: (id) => `/api/articles/${id}/tsne`,
-    metaUrl: (id) => `/api/articles/${id}/meta`,
-    cleanedTextUrl: (id) => `/api/articles/${id}/cleaned-text`
+    exampleUrl:      (model) => `/api/example/tsne?model=${model}`,
+    listUrl:         "/api/articles",
+    uploadUrl:       "/api/articles/upload",
+    tsneUrl:         (id, model) => `/api/articles/${id}/tsne?model=${model}`,
+    metaUrl:         (id)        => `/api/articles/${id}/meta`,
+    cleanedTextUrl:  (id)        => `/api/articles/${id}/cleaned-text`,
   };
 
-  let currentChart = null;
+  // ── Estado global ─────────────────────────────────────────────────────
+  let currentChart   = null;
   let isUploadInProgress = false;
-  const textContentEl = document.getElementById("text-content");
-  const entitiesSummary = document.getElementById("entities-summary");
-  const progressClose = document.getElementById("progress-close");
-  const mainContainer = document.getElementById("container");
-  const dataSourceEl = document.getElementById("data-source");
-  const dataSourceLabelEl = document.getElementById("data-source-label");
-  const btnEntitiesOnly = document.getElementById("btn-entities-only");
-  const btnAllParagraphs = document.getElementById("btn-all-paragraphs");
-  const entitiesCountEl = document.getElementById("entities-count");
-  const chartModeBtn = document.getElementById("chart-mode-btn");
-  const frequencyScaleControls = document.getElementById("frequency-scale-controls");
-  const frequencyScaleSelect = document.getElementById("frequency-scale-select");
-  let chartViewMode = "standard";
+  let chartViewMode      = "standard";
   let frequencyScaleMode = "article";
   let globalFrequencyReferenceMax = 1;
+  let currentModelKey = "tech";   // modelo activo
 
   const panelState = {
     source: "example",
@@ -324,9 +328,29 @@
     data: [],
     totalParagraphs: null,
     articleTitle: null,
-    cleanedText: ""
+    cleanedText: "",
   };
 
+  // ── Elementos DOM ─────────────────────────────────────────────────────
+  const textContentEl          = document.getElementById("text-content");
+  const entitiesSummary        = document.getElementById("entities-summary");
+  const mainContainer          = document.getElementById("container");
+  const dataSourceEl           = document.getElementById("data-source");
+  const dataSourceLabelEl      = document.getElementById("data-source-label");
+  const btnEntitiesOnly        = document.getElementById("btn-entities-only");
+  const btnAllParagraphs       = document.getElementById("btn-all-paragraphs");
+  const entitiesCountEl        = document.getElementById("entities-count");
+  const chartModeBtn           = document.getElementById("chart-mode-btn");
+  const frequencyScaleControls = document.getElementById("frequency-scale-controls");
+  const frequencyScaleSelect   = document.getElementById("frequency-scale-select");
+  const progressContainer      = document.getElementById("progress-container");
+  const progressBar            = document.getElementById("progress-bar");
+  const progressLabel          = document.getElementById("progress-label");
+  const entitiesInfo           = document.getElementById("entities-info");
+  const progressClose          = document.getElementById("progress-close");
+  const modelSelect            = document.getElementById("model-select");
+
+  // ── Utilidades ────────────────────────────────────────────────────────
   function getParagraphsWithEntitiesCount(data) {
     if (!Array.isArray(data)) return 0;
     return new Set(
@@ -350,11 +374,26 @@
       });
   }
 
+  function getMaxEntityFrequency(data) {
+    if (!Array.isArray(data) || !data.length) return 1;
+    const counts = new Map();
+    data.forEach(p => {
+      const key = String(p?.entity || "").trim().toLowerCase().replace(/\s+/g, " ");
+      if (!key) return;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    let max = 1;
+    counts.forEach(v => { if (v > max) max = v; });
+    return max;
+  }
+
+  // ── Renderizado ───────────────────────────────────────────────────────
   function updateDataSourceLabel(source, data, totalParagraphs = null) {
     const entities = Array.isArray(data) ? data.length : 0;
     const paragraphsWithEntities = getParagraphsWithEntitiesCount(data);
     const isEmpty = entities === 0;
     const baseColor = isEmpty ? "#c44d56" : "#999";
+
     dataSourceEl.style.color = baseColor;
     if (entitiesCountEl) {
       entitiesCountEl.textContent = `Entidades: ${entities}`;
@@ -368,25 +407,19 @@
       const totalText = typeof totalParagraphs === "number" ? totalParagraphs : "-";
       btnAllParagraphs.textContent = `P\u00E1rrafos totales: ${totalText}`;
       btnAllParagraphs.classList.toggle("active", panelState.mode === "all");
+      btnAllParagraphs.disabled = source !== "article";
     }
-    if (source === "article") {
-      if (dataSourceLabelEl) dataSourceLabelEl.textContent = "Datos del art\u00EDculo";
-    } else {
-      if (dataSourceLabelEl) dataSourceLabelEl.textContent = "Datos de ejemplo";
-      if (btnAllParagraphs) {
-        btnAllParagraphs.disabled = true;
-      }
-      return;
-    }
-    if (btnAllParagraphs) {
-      btnAllParagraphs.disabled = false;
+    if (dataSourceLabelEl) {
+      dataSourceLabelEl.textContent = source === "article"
+        ? "Datos del art\u00EDculo"
+        : "Datos de ejemplo";
     }
   }
 
   function renderCurrentTextPanel() {
     renderText(panelState.data, textContentEl, panelState.articleTitle, {
       mode: panelState.mode,
-      cleanedText: panelState.cleanedText
+      cleanedText: panelState.cleanedText,
     });
     updateDataSourceLabel(panelState.source, panelState.data, panelState.totalParagraphs);
   }
@@ -410,9 +443,7 @@
       const [yMin, yMax] = yAxis.scale.getExtent();
       if (![xMin, xMax, yMin, yMax].every(Number.isFinite)) return null;
       return { xMin, xMax, yMin, yMax };
-    } catch (_) {
-      return null;
-    }
+    } catch (_) { return null; }
   }
 
   function renderChartByMode(data, axisRange = null) {
@@ -423,27 +454,20 @@
       }
       initTSNEFrequencyChart(currentChart, data, axisRange, {
         scaleMode: frequencyScaleMode,
-        globalReferenceMax: Math.max(2, globalFrequencyReferenceMax)
+        globalReferenceMax: Math.max(2, globalFrequencyReferenceMax),
       });
       return;
     }
     initTSNEChart(currentChart, data, axisRange);
   }
 
-  function getMaxEntityFrequency(data) {
-    if (!Array.isArray(data) || data.length === 0) return 1;
-    const counts = new Map();
-    data.forEach(p => {
-      const key = String(p?.entity || "").trim().toLowerCase().replace(/\s+/g, " ");
-      if (!key) return;
-      counts.set(key, (counts.get(key) || 0) + 1);
-    });
-    if (counts.size === 0) return 1;
-    let max = 1;
-    counts.forEach(v => {
-      if (v > max) max = v;
-    });
-    return max;
+  // ── Progreso ──────────────────────────────────────────────────────────
+  function showProgress(label = "Procesando...") {
+    progressContainer.style.display = "block";
+    if (mainContainer) mainContainer.style.marginTop = "112px";
+    progressBar.style.width = "10%";
+    progressLabel.textContent = label;
+    if (currentChart) requestAnimationFrame(() => currentChart.resize());
   }
 
   function hideProgress() {
@@ -452,83 +476,130 @@
     progressBar.style.width = "0%";
     progressLabel.textContent = "";
     if (entitiesInfo) entitiesInfo.textContent = "";
-    if (currentChart) {
-      requestAnimationFrame(() => currentChart.resize());
-    }
+    if (currentChart) requestAnimationFrame(() => currentChart.resize());
   }
 
-  function showProgress(initialLabel = "Procesando...") {
-    progressContainer.style.display = "block";
-    if (mainContainer) mainContainer.style.marginTop = "112px";
-    progressBar.style.width = "10%";
-    progressLabel.textContent = initialLabel;
-    if (currentChart) {
-      requestAnimationFrame(() => currentChart.resize());
-    }
+  if (progressClose) progressClose.addEventListener("click", hideProgress);
+
+  // ── Carga de datos ────────────────────────────────────────────────────
+  // ── Estado del modal ──────────────────────────────────────────────────
+  let _pendingModalArticleId = null;
+  let _pendingModalModel     = null;
+
+  const modalEl         = document.getElementById("modal-process-model");
+  const modalMsg        = document.getElementById("modal-process-msg");
+  const modalProcessBtn = document.getElementById("modal-process-btn");
+  const modalCancelBtn  = document.getElementById("modal-cancel-btn");
+
+  function showModelModal(articleId, modelKey, articleName) {
+    _pendingModalArticleId = articleId;
+    _pendingModalModel     = modelKey;
+    const modelLabel = modelSelect.options[modelSelect.selectedIndex]?.text || modelKey;
+    modalMsg.textContent = `El artículo "${articleName || articleId}" aún no fue procesado con el modelo "${modelLabel}". ¿Deseas procesarlo ahora?`;
+    modalEl.style.display = "flex";
   }
 
-  if (progressClose) {
-    progressClose.addEventListener("click", hideProgress);
+  if (modalCancelBtn) {
+    modalCancelBtn.addEventListener("click", () => {
+      if (modalEl) modalEl.style.display = "none";
+      _pendingModalArticleId = null;
+      _pendingModalModel     = null;
+    });
   }
 
-  async function loadAndRenderData(source, articleId = null) {
+  if (modalProcessBtn) {
+    modalProcessBtn.addEventListener("click", async () => {
+      if (modalEl) modalEl.style.display = "none";
+      if (!_pendingModalArticleId || !_pendingModalModel) return;
+      await reprocessArticleWithModel(_pendingModalArticleId, _pendingModalModel);
+      _pendingModalArticleId = null;
+      _pendingModalModel     = null;
+    });
+  }
+
+  async function reprocessArticleWithModel(articleId, modelKey) {
+    // Buscar el archivo original del artículo y re-enviarlo al backend
+    // con el nuevo modelo. Para esto usamos el endpoint de re-proceso.
+    showProgress(`Procesando con modelo ${modelKey}...`);
+    isUploadInProgress = true;
     try {
-      let data;
-      let totalParagraphs = null;
-      let articleTitle = null;
-      let cleanedText = "";
+      const resp = await fetch(`/api/articles/${articleId}/reprocess`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: modelKey }),
+      });
+      const result = await resp.json();
+      if (!resp.ok) throw new Error(result.error || "Error al reprocesar");
+      await pollArticleStatus(articleId, result.article?.original_name || articleId);
+    } catch (err) {
+      isUploadInProgress = false;
+      hideProgress();
+      alert("Error al reprocesar: " + err.message);
+    }
+  }
+
+  async function loadAndRenderData(source, articleId = null, modelKey = currentModelKey) {
+    try {
+      let data, totalParagraphs = null, articleTitle = null, cleanedText = "";
+
       if (source === "article" && articleId) {
-        const response = await fetch(config.tsneUrl(articleId));
-        if (!response.ok) throw new Error("No article data available");
+        const response = await fetch(config.tsneUrl(articleId, modelKey));
+        if (!response.ok) {
+          // Sin datos para este modelo → mostrar modal
+          let artName = articleId;
+          try {
+            const metaR = await fetch(config.metaUrl(articleId));
+            if (metaR.ok) { const m = await metaR.json(); artName = m?.article?.original_name || articleId; }
+          } catch (_) {}
+          showModelModal(articleId, modelKey, artName);
+          return;
+        }
         const result = await response.json();
         data = result.data;
+
         try {
-          const [metaResponse, cleanedTextResponse] = await Promise.all([
+          const [metaResp, cleanedResp] = await Promise.all([
             fetch(config.metaUrl(articleId)),
-            fetch(config.cleanedTextUrl(articleId))
+            fetch(config.cleanedTextUrl(articleId)),
           ]);
-          if (metaResponse.ok) {
-            const meta = await metaResponse.json();
-            if (meta && meta.progress && typeof meta.progress.total === "number") {
-              totalParagraphs = meta.progress.total;
-            }
-            if (meta && typeof meta.title === "string") {
-              articleTitle = meta.title;
-            }
+          if (metaResp.ok) {
+            const meta = await metaResp.json();
+            if (meta?.progress?.total) totalParagraphs = meta.progress.total;
+            if (meta?.title)           articleTitle    = meta.title;
           }
-          if (cleanedTextResponse.ok) {
-            const cleanedPayload = await cleanedTextResponse.json();
-            if (cleanedPayload && typeof cleanedPayload.text === "string") {
-              cleanedText = cleanedPayload.text;
+          if (cleanedResp.ok) {
+            const payload = await cleanedResp.json();
+            if (payload?.text) {
+              cleanedText    = payload.text;
               totalParagraphs = extractBodyParagraphs(cleanedText).length;
             }
           }
         } catch (_) {}
+
       } else {
-        const result = await loadTSNEData(config.exampleUrl);
+        const result = await loadTSNEData(config.exampleUrl(modelKey));
         data = result.data;
         totalParagraphs = getParagraphsWithEntitiesCount(data);
       }
 
       const chartDom = document.getElementById("tsne-chart");
-      if (currentChart) {
-        currentChart.dispose();
-      }
-
+      if (currentChart) currentChart.dispose();
       currentChart = echarts.init(chartDom);
+
       resetFrequencyExpansion();
       renderChartByMode(data);
-      panelState.source = source;
-      panelState.articleId = articleId;
-      panelState.mode = "entities";
-      panelState.data = Array.isArray(data) ? data : [];
+
+      panelState.source          = source;
+      panelState.articleId       = articleId;
+      panelState.mode            = "entities";
+      panelState.data            = Array.isArray(data) ? data : [];
       panelState.totalParagraphs = totalParagraphs;
-      panelState.articleTitle = articleTitle;
-      panelState.cleanedText = cleanedText;
+      panelState.articleTitle    = articleTitle;
+      panelState.cleanedText     = cleanedText;
+
       renderCurrentTextPanel();
-      if (entitiesSummary) {
-        entitiesSummary.textContent = `Entidades: ${data.length}`;
-      }
+      if (entitiesSummary) entitiesSummary.textContent = `Entidades: ${panelState.data.length}`;
+
     } catch (error) {
       console.error("Error cargando datos:", error);
       alert("Error al cargar datos: " + error.message);
@@ -537,94 +608,85 @@
 
   async function refreshArticleList(selectedId = null) {
     try {
-      const response = await fetch(config.listUrl);
-      if (!response.ok) throw new Error("No se pudo cargar la lista de art\u00EDculos");
-      const result = await response.json();
-
+      const resp = await fetch(config.listUrl);
+      if (!resp.ok) return;
+      const result = await resp.json();
       const select = document.getElementById("article-select");
-      const currentValue = selectedId || select.value;
-
+      const current = selectedId || select.value;
       select.innerHTML = '<option value="example">Datos de ejemplo</option>';
       result.articles.forEach(article => {
-        const option = document.createElement("option");
-        option.value = article.id;
-        option.textContent = `${article.original_name} (${article.status})`;
-        select.appendChild(option);
+        const opt = document.createElement("option");
+        opt.value       = article.id;
+        opt.textContent = `${article.original_name} (${article.status})`;
+        select.appendChild(opt);
       });
-
-      if (currentValue) {
-        select.value = currentValue;
-      }
+      if (current) select.value = current;
     } catch (error) {
-      console.error("Error listando art\u00EDculos", error);
+      console.error("Error listando artículos:", error);
     }
   }
 
-  // Initial load
+  // ── Carga inicial ─────────────────────────────────────────────────────
   await refreshArticleList("example");
-  await loadAndRenderData("example");
+  await loadAndRenderData("example", null, "tech");
 
-  if (btnEntitiesOnly) {
-    btnEntitiesOnly.addEventListener("click", () => {
-      panelState.mode = "entities";
-      renderCurrentTextPanel();
-    });
-  }
+  // ── Selector de modelo ────────────────────────────────────────────────
+  modelSelect.addEventListener("change", async () => {
+    currentModelKey = modelSelect.value;
+    const articleId  = document.getElementById("article-select").value;
+    const source     = articleId === "example" ? "example" : "article";
+    await loadAndRenderData(source, source === "example" ? null : articleId, currentModelKey);
+  });
 
-  if (btnAllParagraphs) {
-    btnAllParagraphs.addEventListener("click", () => {
-      if (panelState.source !== "article") return;
-      panelState.mode = "all";
-      renderCurrentTextPanel();
-    });
-  }
-
-  if (chartModeBtn) {
-    chartModeBtn.addEventListener("click", () => {
-      const axisRangeFromCurrent = getCurrentAxisRange(currentChart);
-      chartViewMode = chartViewMode === "standard" ? "frequency" : "standard";
-      updateChartModeButton();
-      if (currentChart && Array.isArray(panelState.data)) {
-        resetFrequencyExpansion();
-        renderChartByMode(panelState.data, axisRangeFromCurrent);
-      }
-    });
-    updateChartModeButton();
-  }
-
-  if (frequencyScaleSelect) {
-    frequencyScaleSelect.value = frequencyScaleMode;
-    frequencyScaleSelect.addEventListener("change", () => {
-      frequencyScaleMode = frequencyScaleSelect.value === "global" ? "global" : "article";
-      if (chartViewMode !== "frequency" || !currentChart || !Array.isArray(panelState.data)) return;
-      const axisRangeFromCurrent = getCurrentAxisRange(currentChart);
-      renderChartByMode(panelState.data, axisRangeFromCurrent);
-    });
-  }
-
-  // Selector
+  // ── Selector de artículo ──────────────────────────────────────────────
   document.getElementById("article-select").addEventListener("change", async (e) => {
-    if (!isUploadInProgress) {
-      hideProgress();
-    }
+    if (!isUploadInProgress) hideProgress();
     const value = e.target.value;
     if (value === "example") {
-      await loadAndRenderData("example");
+      await loadAndRenderData("example", null, currentModelKey);
     } else {
-      await loadAndRenderData("article", value);
+      await loadAndRenderData("article", value, currentModelKey);
     }
   });
 
-  // Resizer logic
-  const resizer = document.getElementById("resizer");
-  const chartPanel = document.getElementById("chart-panel");
-  const textPanel = document.getElementById("text-panel");
-  let isResizing = false;
-
-  resizer.addEventListener("mousedown", () => {
-    isResizing = true;
+  // ── Toggle modo texto ─────────────────────────────────────────────────
+  btnEntitiesOnly?.addEventListener("click", () => {
+    panelState.mode = "entities";
+    renderCurrentTextPanel();
   });
 
+  btnAllParagraphs?.addEventListener("click", () => {
+    if (panelState.source !== "article") return;
+    panelState.mode = "all";
+    renderCurrentTextPanel();
+  });
+
+  // ── Toggle modo gráfica ───────────────────────────────────────────────
+  chartModeBtn?.addEventListener("click", () => {
+    const axisRange = getCurrentAxisRange(currentChart);
+    chartViewMode = chartViewMode === "standard" ? "frequency" : "standard";
+    updateChartModeButton();
+    if (currentChart && Array.isArray(panelState.data)) {
+      resetFrequencyExpansion();
+      renderChartByMode(panelState.data, axisRange);
+    }
+  });
+  updateChartModeButton();
+
+  frequencyScaleSelect?.addEventListener("change", () => {
+    frequencyScaleMode = frequencyScaleSelect.value === "global" ? "global" : "article";
+    if (chartViewMode !== "frequency" || !currentChart || !Array.isArray(panelState.data)) return;
+    const axisRange = getCurrentAxisRange(currentChart);
+    renderChartByMode(panelState.data, axisRange);
+  });
+
+  // ── Resizer ───────────────────────────────────────────────────────────
+  const resizer   = document.getElementById("resizer");
+  const chartPanel = document.getElementById("chart-panel");
+  const textPanel  = document.getElementById("text-panel");
+  let isResizing  = false;
+
+  resizer.addEventListener("mousedown", () => { isResizing = true; });
   document.addEventListener("mousemove", (e) => {
     if (!isResizing) return;
     const container = document.getElementById("container");
@@ -635,23 +697,14 @@
       if (currentChart) currentChart.resize();
     }
   });
+  document.addEventListener("mouseup", () => { isResizing = false; });
 
-  document.addEventListener("mouseup", () => {
-    isResizing = false;
-  });
-
-  // Upload flow
-  const uploadBtn = document.getElementById("upload-article-btn");
-  const fileInput = document.getElementById("file-input");
+  // ── Upload de artículo ────────────────────────────────────────────────
+  const uploadBtn        = document.getElementById("upload-article-btn");
+  const fileInput        = document.getElementById("file-input");
   const loadingIndicator = document.getElementById("loading");
-  const progressContainer = document.getElementById("progress-container");
-  const progressBar = document.getElementById("progress-bar");
-  const progressLabel = document.getElementById("progress-label");
-  const entitiesInfo = document.getElementById("entities-info");
 
-  uploadBtn.addEventListener("click", () => {
-    fileInput.click();
-  });
+  uploadBtn.addEventListener("click", () => fileInput.click());
 
   fileInput.addEventListener("change", async (e) => {
     const file = e.target.files[0];
@@ -666,14 +719,11 @@
 
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("model", currentModelKey);   // enviar modelo seleccionado
 
     try {
-      const response = await fetch(config.uploadUrl, {
-        method: "POST",
-        body: formData
-      });
-
-      const result = await response.json();
+      const response = await fetch(config.uploadUrl, { method: "POST", body: formData });
+      const result   = await response.json();
 
       if (response.ok && result.article) {
         await refreshArticleList();
@@ -686,7 +736,6 @@
     } catch (error) {
       isUploadInProgress = false;
       hideProgress();
-      console.error("Error:", error);
       alert("Error al procesar art\u00EDculo: " + error.message);
     } finally {
       uploadBtn.disabled = false;
@@ -696,71 +745,47 @@
     }
   });
 
+  // ── Polling de estado ─────────────────────────────────────────────────
   async function pollArticleStatus(articleId, fileName) {
     const stageToProgress = {
-      "queued": 10,
-      "processing": 30,
-      "ner": 60,
-      "tsne": 85,
-      "completed": 100,
-      "failed": 100
+      queued: 10, processing: 30, ner: 60, tsne: 85, completed: 100, failed: 100,
     };
-
     let attempts = 0;
-    const maxAttempts = 300; // ~10 min
 
-    while (attempts < maxAttempts) {
-      attempts += 1;
+    while (attempts < 300) {
+      attempts++;
       try {
-        const response = await fetch(config.metaUrl(articleId));
-        const result = await response.json();
-        const article = result.article || {};
+        const resp   = await fetch(config.metaUrl(articleId));
+        const result = await resp.json();
+        const article  = result.article || {};
+        const progress = result.progress || {};
 
-        const stage = article.stage || "processing";
-        const progressInfo = result.progress || {};
-        const progress = typeof progressInfo.percent === "number"
-          ? progressInfo.percent
+        const stage   = article.stage || "processing";
+        const percent = typeof progress.percent === "number"
+          ? progress.percent
           : (stageToProgress[stage] || 50);
-        progressBar.style.width = `${progress}%`;
-        const processed = progressInfo.processed;
-        const total = progressInfo.total;
-        const eta = progressInfo.eta_seconds;
-        const entitiesExtracted = progressInfo.entities_extracted;
-        const currentText = progressInfo.current_text;
-        const currentChunk = progressInfo.current_chunk;
-        const totalChunks = progressInfo.total_chunks;
 
-        const baseLabel = stage === "completed" ? "Completado" :
-          stage === "failed" ? "Fall\u00F3" :
-          stage === "queued" ? "En cola..." :
-          stage === "ner" ? "Extrayendo entidades (NER)..." :
-          stage === "tsne" ? "Generando t-SNE..." :
-          "Procesando...";
-        const countLabel = (typeof processed === "number" && typeof total === "number" && total > 0)
-          ? ` ${processed}/${total}`
-          : "";
-        const chunkLabel = (typeof currentText === "number" && typeof currentChunk === "number" && typeof totalChunks === "number")
-          ? ` \u00B7 texto ${currentText} chunk ${currentChunk}/${totalChunks}`
-          : "";
-        const etaLabel = (typeof eta === "number" && eta > 0)
-          ? ` \u00B7 ETA ${formatEta(eta)}`
-          : "";
-        const entitiesLabel = (typeof entitiesExtracted === "number")
-          ? ` \u00B7 entidades ${entitiesExtracted}`
-          : "";
-        progressLabel.textContent = `${baseLabel}${countLabel}${chunkLabel}${etaLabel}${entitiesLabel}`;
+        progressBar.style.width = `${percent}%`;
 
+        const stageLabel = {
+          completed: "Completado", failed: "Fall\u00F3",
+          queued: "En cola...", ner: "Extrayendo entidades (NER)...",
+          tsne: "Generando t-SNE...",
+        }[stage] || "Procesando...";
+
+        const countPart = (typeof progress.processed === "number" && typeof progress.total === "number" && progress.total > 0)
+          ? ` ${progress.processed}/${progress.total}` : "";
+        const entsPart  = typeof progress.entities_extracted === "number"
+          ? ` \u00B7 entidades ${progress.entities_extracted}` : "";
+
+        progressLabel.textContent = `${stageLabel}${countPart}${entsPart}`;
         if (entitiesInfo) {
-          const paragraphsLabel = (typeof processed === "number" && typeof total === "number" && total > 0)
-            ? `P\u00E1rrafos: ${processed}/${total}`
-            : "P\u00E1rrafos: -";
-          const entitiesCountLabel = (typeof entitiesExtracted === "number")
-            ? `Entidades: ${entitiesExtracted}`
-            : "Entidades: -";
-          entitiesInfo.textContent = `${paragraphsLabel} \u00B7 ${entitiesCountLabel}`;
+          entitiesInfo.textContent = (typeof progress.processed === "number" && progress.total > 0)
+            ? `P\u00E1rrafos: ${progress.processed}/${progress.total}`
+            : "";
         }
-        if (entitiesSummary && typeof entitiesExtracted === "number") {
-          entitiesSummary.textContent = `Entidades: ${entitiesExtracted}`;
+        if (entitiesSummary && typeof progress.entities_extracted === "number") {
+          entitiesSummary.textContent = `Entidades: ${progress.entities_extracted}`;
         }
 
         if (article.status === "processed") {
@@ -768,7 +793,7 @@
           progressLabel.textContent = "Completado";
           await refreshArticleList(articleId);
           document.getElementById("article-select").value = articleId;
-          await loadAndRenderData("article", articleId);
+          await loadAndRenderData("article", articleId, currentModelKey);
           isUploadInProgress = false;
           hideProgress();
           alert(`Art\u00EDculo procesado correctamente: ${fileName}`);
@@ -781,27 +806,15 @@
           alert(`Error al procesar: ${article.error || "Revisa la consola del servidor"}`);
           break;
         }
+
       } catch (error) {
         console.error("Error consultando estado:", error);
       }
-
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
-
-    // Mantener visible la informaciÃƒÆ’Ã‚Â³n final de pÃƒÆ’Ã‚Â¡rrafos y entidades
-    if (!isUploadInProgress) {
-      hideProgress();
-    }
-  }
-
-  function formatEta(seconds) {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    if (mins > 0) return `${mins}m ${secs}s`;
-    return `${secs}s`;
+    if (isUploadInProgress) hideProgress();
   }
 </script>
 
 </body>
 </html>
-
