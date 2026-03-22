@@ -278,10 +278,127 @@ def remove_author_block(text: str) -> str:
     return "\n".join(clean)
 
 
+def remove_front_matter_info_block(text: str) -> str:
+    """
+    Remove keyword/info blocks that often appear between the title/authors and
+    the first real paragraph in publisher-exported PDFs.
+    """
+    lines = text.split("\n")
+    clean = []
+    skipping_info = False
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+
+        if i < 80 and re.fullmatch(r'I\s+N\s+F\s+O', stripped, re.IGNORECASE):
+            skipping_info = True
+            continue
+
+        if skipping_info:
+            # The first long prose line marks the real start of the article body.
+            if len(stripped) >= 80 and re.search(r'[a-z]{3,}.*\s[a-z]{3,}', stripped, re.IGNORECASE):
+                skipping_info = False
+                clean.append(line)
+            continue
+
+        clean.append(line)
+
+    return "\n".join(clean)
+
+
+def final_noise_scrub(text: str) -> str:
+    """
+    Remove stubborn table-of-contents and publisher metadata lines that can
+    survive the broader section cleaning when PDF extraction merges blocks.
+    """
+    cleaned_lines = []
+    drop_toc_block = False
+    drop_reference_block = False
+    reference_rows_seen = 0
+
+    toc_entry = re.compile(
+        r'^\s*(?:\d+(?:\.\d+)*\.?\s+)?[A-Za-z][^\n]{0,180}\.{8,}\s*\d+\s*$'
+    )
+    dangling_section_page = re.compile(
+        r'^\s*(?:Declaration of competing interest|Data availability|Funding|References)\s*\.{4,}\s*\d+\s*$',
+        re.IGNORECASE,
+    )
+    noise_line = re.compile(
+        r'^\s*(?:'
+        r'Contents|'
+        r'(?:\*|∗)\s*Corresponding author\b.*|'
+        r'E-?mail address\s*:.*|'
+        r'\d+\s+Research Scholar\b.*|'
+        r'I\s+N\s+F\s+O|'
+        r'\d{1,2}\s+[A-Z][a-z]+\s+\d{4}\s*$|'
+        r'\d{4}[-/]\d{2,}.*Published by|'
+        r'.*Published by Elsevier.*|'
+        r'.*open access article.*license.*|'
+        r'\(http://creativecommons\.org/licenses/[^\s]+\)\.?|'
+        r'\(continued on next page ?\)|'
+        r'at ScienceDirect'
+        r')\s*$',
+        re.IGNORECASE,
+    )
+    bracket_reference_row = re.compile(r'^\s*\[\d+\](?:\s+.*)?$')
+    section_heading = re.compile(r'^\s*\d+(?:\.\d+)*\.?\s+[A-Z]', re.IGNORECASE)
+
+    for line in text.split("\n"):
+        stripped = line.strip()
+
+        if not stripped:
+            if not drop_toc_block and not drop_reference_block:
+                cleaned_lines.append(line)
+            continue
+
+        if stripped.lower() == "contents":
+            drop_toc_block = True
+            continue
+
+        if bracket_reference_row.match(stripped):
+            drop_reference_block = True
+            reference_rows_seen += 1
+            continue
+
+        if drop_toc_block:
+            if toc_entry.match(stripped) or dangling_section_page.match(stripped) or noise_line.match(stripped):
+                continue
+            drop_toc_block = False
+
+        if drop_reference_block:
+            if section_heading.match(stripped):
+                drop_reference_block = False
+                reference_rows_seen = 0
+                cleaned_lines.append(line)
+                continue
+            if bracket_reference_row.match(stripped):
+                reference_rows_seen += 1
+                continue
+            if reference_rows_seen >= 2:
+                continue
+            drop_reference_block = False
+            reference_rows_seen = 0
+
+        if toc_entry.match(stripped):
+            continue
+        if dangling_section_page.match(stripped):
+            continue
+        if noise_line.match(stripped):
+            continue
+
+        cleaned_lines.append(line)
+
+    cleaned = "\n".join(cleaned_lines)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
 def clean_all_sections(text: str) -> str:
     """Apply all section-level cleaning in order."""
     text = remove_discard_sections(text)
     text = remove_figures(text)
     text = remove_headers_footers(text)
     text = remove_author_block(text)
+    text = remove_front_matter_info_block(text)
+    text = final_noise_scrub(text)
     return text

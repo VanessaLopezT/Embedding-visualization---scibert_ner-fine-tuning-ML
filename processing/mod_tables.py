@@ -116,6 +116,15 @@ MULTI_COLUMN_ROW = re.compile(
 # Table separator
 TABLE_SEPARATOR = re.compile(r'^[\s]*[-\u2500\u2550_]{5,}[\s]*$')
 
+# Common table header rows in extracted academic PDFs
+TABLE_HEADER_ROW = re.compile(
+    r'^\s*(?:References?\s+and\s+domain|Architecture|Applications|XAI\s+models?)\b.*$',
+    re.IGNORECASE,
+)
+
+# Reference-like rows commonly used as the first column in survey tables
+TABLE_REFERENCE_ROW = re.compile(r'^\s*\[\d+\](?:\s+.*)?$')
+
 
 def _is_table_content_line(line: str) -> bool:
     """Check if a line has table-like content (numbers, stats, separators)."""
@@ -129,6 +138,10 @@ def _is_table_content_line(line: str) -> bool:
     if CI_RANGE.match(stripped):
         return True
     if BARE_NUMBER.match(stripped):
+        return True
+    if TABLE_HEADER_ROW.match(stripped):
+        return True
+    if TABLE_REFERENCE_ROW.match(stripped):
         return True
     if MULTI_COLUMN_ROW.match(stripped):
         return True

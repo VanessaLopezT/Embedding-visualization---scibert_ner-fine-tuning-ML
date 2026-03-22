@@ -85,6 +85,7 @@ def main(embeddings_file="entity_embeddings.npz", output="web/tsne_data.json"):
 
     points = []
     for i in range(len(emb_2d)):
+        sid = int(sentence_ids[i])
         points.append({
             "id": i,                                  # ID estable de la entidad
             "x": float(emb_2d[i, 0]),
@@ -92,8 +93,8 @@ def main(embeddings_file="entity_embeddings.npz", output="web/tsne_data.json"):
             "label": labels[i],                       # tipo de entidad
             "entity": texts[i],                       # texto real de la entidad
             "text_index": int(text_index[i]),         # índice del texto original
-            "sentence_id": int(sentence_ids[i]),      # ID de la frase
-            "sentence_text": str(sentence_texts[i])   # texto completo de la frase
+            "sentence_id": sid,                       # ID de la frase
+            "sentence_text": str(sentence_texts[sid]) if 0 <= sid < len(sentence_texts) else ""
         })
 
     # Crear carpeta de salida si no existe
