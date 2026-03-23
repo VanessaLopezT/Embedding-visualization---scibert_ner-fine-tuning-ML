@@ -93,6 +93,38 @@ export function renderText(data, container, externalTitle = null, options = {}) 
     return;
   }
 
+  if (mode === "entities" && cleanedText) {
+    const paragraphs = buildEntityParagraphs(cleanedText, sentenceList);
+    paragraphs.forEach(paragraph => {
+      const ranges = [];
+      paragraph.entities.forEach(ent => {
+        const term = ent.entity || "";
+        if (!term) return;
+
+        const matches = findAllMatches(paragraph.text, term);
+        for (const match of matches) {
+          if (!overlapsExisting(match, ranges)) {
+            ranges.push({
+              start: match.start,
+              end: match.end,
+              id: ent.id,
+              label: ent.label,
+              entity: term
+            });
+            break;
+          }
+        }
+      });
+
+      ranges.sort((a, b) => a.start - b.start);
+      const p = document.createElement("p");
+      p.innerHTML = buildHtmlFromRanges(paragraph.text, ranges);
+      container.appendChild(p);
+    });
+    bindTextInteractions();
+    return;
+  }
+
   sentenceList.forEach(sentence => {
     const text = sentence.text || "";
     const isTitle = /^TITLE:\s*/i.test(text.trim());
@@ -148,12 +180,17 @@ function bindTextInteractions() {
 
 function findAllMatches(text, term) {
   const matches = [];
+  const haystack = String(text || "");
+  const needle = String(term || "");
+  const haystackLower = haystack.toLowerCase();
+  const needleLower = needle.toLowerCase();
+  if (!needleLower) return matches;
   let idx = 0;
-  while (idx < text.length) {
-    const found = text.indexOf(term, idx);
+  while (idx < haystackLower.length) {
+    const found = haystackLower.indexOf(needleLower, idx);
     if (found === -1) break;
-    matches.push({ start: found, end: found + term.length });
-    idx = found + term.length;
+    matches.push({ start: found, end: found + needle.length });
+    idx = found + needle.length;
   }
   return matches;
 }
@@ -169,7 +206,7 @@ function buildHtmlFromRanges(text, ranges) {
     if (r.start < cursor) continue;
     result += escapeHtml(text.slice(cursor, r.start));
     const _color = getColorForLabel(r.label);
-    result += `<span class="entity" data-id="${r.id}" data-label="${escapeHtml(String(r.label || ""))}" style="color:${_color}; border-bottom: 2px solid ${_color};">${escapeHtml(text.slice(r.start, r.end))}</span>`;
+    result += `<span class="entity" data-id="${r.id}" data-entity-key="${escapeHtml(normalizeEntityKey(r.entity || text.slice(r.start, r.end)))}" data-label="${escapeHtml(String(r.label || ""))}" style="color:${_color}; border-bottom: 2px solid ${_color};">${escapeHtml(text.slice(r.start, r.end))}</span>`;
     cursor = r.end;
   }
   result += escapeHtml(text.slice(cursor));
@@ -193,6 +230,77 @@ function sanitizeTitle(title) {
   t = t.replace(/\bAbstract\b[\s\S]*$/i, "").trim();
   t = t.replace(/\s{2,}/g, " ").trim();
   return t;
+}
+
+export function getEntityParagraphs(data, cleanedText = "") {
+  const sentences = new Map();
+  (Array.isArray(data) ? data : []).forEach(d => {
+    if (!sentences.has(d.sentence_id)) {
+      sentences.set(d.sentence_id, {
+        text: d.sentence_text,
+        entities: []
+      });
+    }
+    sentences.get(d.sentence_id).entities.push(d);
+  });
+  return buildEntityParagraphs(cleanedText, Array.from(sentences.values()));
+}
+
+function buildEntityParagraphs(cleanedText, sentenceList) {
+  const paragraphs = extractBodyParagraphsFromCleanedText(cleanedText);
+  if (!paragraphs.length) return [];
+
+  const normalizedParagraphs = paragraphs.map((text, index) => ({
+    index,
+    text,
+    normalized: normalizeForParagraphMatch(text),
+    entities: []
+  }));
+
+  const entityOccurrences = [];
+  sentenceList.forEach(sentence => {
+    const rawText = String(sentence?.text || "").trim();
+    if (!rawText || /^TITLE:\s*/i.test(rawText)) return;
+    (sentence.entities || []).forEach(ent => {
+      entityOccurrences.push(ent);
+    });
+  });
+
+  entityOccurrences.forEach(ent => {
+    const rawEntity = String(ent?.entity || "").trim();
+    if (!rawEntity) return;
+
+    const normalizedEntity = normalizeForParagraphMatch(rawEntity);
+    if (!normalizedEntity) return;
+
+    normalizedParagraphs.forEach(paragraph => {
+      if (!paragraph.normalized.includes(normalizedEntity)) return;
+      if (!paragraph.entities.some(existing => existing.id === ent.id)) {
+        paragraph.entities.push(ent);
+      }
+    });
+  });
+
+  return normalizedParagraphs.filter(paragraph => paragraph.entities.length > 0);
+}
+
+function normalizeForParagraphMatch(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[“”"']/g, "")
+    .replace(/\s*([.,:;!?()[\]{}])\s*/g, "$1")
+    .replace(/\s*-\s*/g, "-")
+    .replace(/\s*\/\s*/g, "/")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeEntityKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[“”"']/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function extractBodyParagraphsFromCleanedText(cleanedText) {

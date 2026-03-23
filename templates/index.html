@@ -124,15 +124,30 @@
     .data-toggle-btn:disabled { cursor: not-allowed; opacity: 0.6; }
 
     /* ── BOTONES CHART ── */
-    .chart-mode-btn {
-      position: absolute; top: 10px; right: 48px; z-index: 3;
-      border: 1px solid #9ec5fe; background: #ffffff; color: #0d6efd;
+    .chart-view-controls {
+      position: absolute; top: 4px; right: 48px; z-index: 3;
+      display: flex; align-items: center; gap: 8px;
+      background: rgba(255,255,255,0.92);
+      border: 1px solid #dbe6f5;
+      border-radius: 999px;
+      padding: 4px;
+      box-shadow: 0 1px 3px rgba(13,110,253,0.10);
+    }
+    .chart-view-btn,
+    .chart-relations-btn {
+      border: 1px solid #d0d7de; background: #f8f9fa; color: #495057;
       font-size: 12px; font-weight: 600; border-radius: 999px;
       padding: 4px 10px; cursor: pointer;
-      box-shadow: 0 1px 3px rgba(13,110,253,0.14);
       transition: all 0.15s ease;
     }
-    .chart-mode-btn:hover { border-color: #0d6efd; background: #e7f1ff; color: #0b5ed7; }
+    .chart-view-btn:hover,
+    .chart-relations-btn:hover { border-color: #0d6efd; background: #e7f1ff; color: #0b5ed7; }
+    .chart-view-btn.active,
+    .chart-relations-btn.active {
+      background: #e7f1ff; border-color: #0d6efd; color: #0d6efd;
+      box-shadow: 0 1px 3px rgba(13,110,253,0.18);
+    }
+    .chart-relations-btn[hidden] { display: none !important; }
 
     .chart-help {
       position: absolute; top: 10px; right: 12px; z-index: 3;
@@ -219,10 +234,14 @@
 
   <!-- Panel gráfica t-SNE -->
   <div id="chart-panel" style="height: 100%; overflow: hidden;">
-    <button id="chart-mode-btn" class="chart-mode-btn" type="button">Vista: Original</button>
+    <div class="chart-view-controls">
+      <button id="chart-original-btn" class="chart-view-btn" type="button">Vista: Original</button>
+      <button id="chart-frequency-btn" class="chart-view-btn" type="button">Vista: Frecuencia</button>
+      <button id="chart-relations-btn" class="chart-relations-btn" type="button" hidden>Vista: Relaciones</button>
+    </div>
 
     <div id="frequency-scale-controls"
-      style="position:absolute; top:12px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
+      style="position:absolute; top:4px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
              border:1px solid #e0e0e0; border-radius:6px; padding:6px 8px;
              display:none; align-items:center; gap:6px; font-size:12px; color:#444;">
       <label for="frequency-scale-select" style="font-size:12px;">Escala:</label>
@@ -232,17 +251,39 @@
       </select>
     </div>
 
-    <div class="chart-help" aria-label="Ayuda de la gr&aacute;fica">
+    <div id="chart-help" class="chart-help" aria-label="Ayuda de la gr&aacute;fica">
       <button class="chart-help-btn" type="button" aria-label="&iquest;Qu&eacute; muestra esta gr&aacute;fica?">?</button>
-      <div class="chart-help-tooltip" role="tooltip">
+      <div id="chart-help-tooltip" class="chart-help-tooltip" role="tooltip">
         <strong>&iquest;Qu&eacute; ves aqu&iacute;?</strong><br>
         Cada punto es una entidad detectada en el texto.<br><br>
         <strong>Dimensi&oacute;n 1 y Dimensi&oacute;n 2</strong> son una proyecci&oacute;n 2D para visualizar
         cercan&iacute;a sem&aacute;ntica: puntos cercanos aparecen en contextos parecidos.<br><br>
         Si cambias a <strong>Vista: Frecuencia</strong>, cada palabra aparece una sola vez
         y el tama&ntilde;o del punto representa cu&aacute;ntas veces se detect&oacute;.<br><br>
+        En <strong>Vista: Relaciones</strong>, cada nodo agrupa una entidad y su tama&ntilde;o
+        crece seg&uacute;n cu&aacute;ntas veces se repite; las l&iacute;neas muestran afinidad contextual
+        entre entidades del art&iacute;culo.<br><br>
         Usa el <strong>selector de modelo</strong> (arriba izquierda) para cambiar entre
         el modelo ML/Tech y el modelo de oncolog&iacute;a veterinaria (CMT).
+      </div>
+    </div>
+
+    <div id="chart-relations-help" class="chart-help" aria-label="Ayuda de relaciones" hidden
+      style="top: 42px; right: 12px;">
+      <button class="chart-help-btn" type="button" aria-label="&iquest;Qu&eacute; muestra la vista de relaciones?">?</button>
+      <div class="chart-help-tooltip" role="tooltip">
+        <strong>Detalles de la conexi&oacute;n</strong><br>
+        Esto te ayuda a entender los n&uacute;meros que salen al pasar sobre una conexi&oacute;n.<br><br>
+        <strong>Afinidad</strong>: es la fuerza total de la relaci&oacute;n.
+        Si es m&aacute;s alta, la conexi&oacute;n es m&aacute;s fuerte y confiable.<br><br>
+        <strong>Coocurrencias en frase</strong>: cu&aacute;ntas veces aparecen juntas en la misma frase.
+        Si este n&uacute;mero sube, hay m&aacute;s evidencia directa de relaci&oacute;n.<br><br>
+        <strong>Solapamiento en chunk</strong>: qu&eacute; tanto coinciden en los mismos fragmentos del texto.
+        Si es m&aacute;s alto, comparten m&aacute;s contexto general.<br><br>
+        <strong>Similitud de contexto</strong>: indica si ambas entidades suelen estar rodeadas de conceptos parecidos.
+        Si es m&aacute;s alta, sus entornos tem&aacute;ticos se parecen m&aacute;s.<br><br>
+        <strong>NPMI contextual</strong>: mide si aparecen juntas m&aacute;s de lo esperado por azar.
+        Si es m&aacute;s alto, esa asociaci&oacute;n es m&aacute;s especial y menos casual.
       </div>
     </div>
 
@@ -299,9 +340,10 @@
 
 <script type="module">
   import { loadTSNEData }                                from "{% static 'js/dataLoader.js' %}?v=20260315";
-  import { initTSNEChart }                               from "{% static 'js/tsneChart.js' %}?v=20260315";
-  import { initTSNEFrequencyChart, resetFrequencyExpansion } from "{% static 'js/tsneChartFrequency.js' %}?v=20260315";
-  import { renderText }                                  from "{% static 'js/textPanel.js' %}?v=20260315";
+  import { initTSNEChart }                               from "{% static 'js/tsneChart.js' %}?v=20260327";
+  import { initTSNEFrequencyChart, resetFrequencyExpansion } from "{% static 'js/tsneChartFrequency.js' %}?v=20260327";
+  import { initTSNERelationsChart, resetRelationsSelection } from "{% static 'js/tsneChartRelations.js' %}?v=20260327";
+  import { renderText }                                  from "{% static 'js/textPanel.js' %}?v=20260324";
 
   // ── URLs de API ──────────────────────────────────────────────────────
   const config = {
@@ -317,6 +359,8 @@
   let currentChart   = null;
   let isUploadInProgress = false;
   let chartViewMode      = "standard";
+  let baseChartViewMode  = "standard";
+  let previousChartViewMode = "standard";
   let frequencyScaleMode = "article";
   let globalFrequencyReferenceMax = 1;
   let currentModelKey = "tech";   // modelo activo
@@ -340,7 +384,11 @@
   const btnEntitiesOnly        = document.getElementById("btn-entities-only");
   const btnAllParagraphs       = document.getElementById("btn-all-paragraphs");
   const entitiesCountEl        = document.getElementById("entities-count");
-  const chartModeBtn           = document.getElementById("chart-mode-btn");
+  const chartOriginalBtn       = document.getElementById("chart-original-btn");
+  const chartFrequencyBtn      = document.getElementById("chart-frequency-btn");
+  const chartRelationsBtn      = document.getElementById("chart-relations-btn");
+  const chartHelp              = document.getElementById("chart-help");
+  const chartRelationsHelp     = document.getElementById("chart-relations-help");
   const frequencyScaleControls = document.getElementById("frequency-scale-controls");
   const frequencyScaleSelect   = document.getElementById("frequency-scale-select");
   const progressContainer      = document.getElementById("progress-container");
@@ -351,15 +399,6 @@
   const modelSelect            = document.getElementById("model-select");
 
   // ── Utilidades ────────────────────────────────────────────────────────
-  function getParagraphsWithEntitiesCount(data) {
-    if (!Array.isArray(data)) return 0;
-    return new Set(
-      data
-        .filter(p => !String(p.sentence_text || "").trim().match(/^TITLE:\s*/i))
-        .map(p => p.sentence_id)
-    ).size;
-  }
-
   function extractBodyParagraphs(cleanedText) {
     const text = String(cleanedText || "").trim();
     if (!text) return [];
@@ -372,6 +411,41 @@
         const withoutTitle = p.replace(/^TITLE:\s*[^\r\n]*\s*/i, "").trim();
         return withoutTitle ? [withoutTitle] : [];
       });
+  }
+
+  function getParagraphsWithEntitiesCount(data, cleanedText = "") {
+    if (!Array.isArray(data) || !data.length) return 0;
+
+    const paragraphs = extractBodyParagraphs(cleanedText);
+    if (!paragraphs.length) {
+      return new Set(
+        data
+          .filter(p => !String(p.sentence_text || "").trim().match(/^TITLE:\s*/i))
+          .map(p => p.sentence_id)
+      ).size;
+    }
+
+    const normalize = (value) => String(value || "")
+      .toLowerCase()
+      .replace(/[“”"']/g, "")
+      .replace(/\s*([.,:;!?()[\]{}])\s*/g, "$1")
+      .replace(/\s*-\s*/g, "-")
+      .replace(/\s*\/\s*/g, "/")
+      .replace(/\s+/g, " ")
+      .trim();
+    const normalizedParagraphs = paragraphs.map(normalize).filter(Boolean);
+    const entityTexts = Array.from(new Set(
+      data
+        .map(p => normalize(p?.entity || ""))
+        .filter(text => text && !/^title:\s*/i.test(text))
+    ));
+
+    let count = 0;
+    normalizedParagraphs.forEach(paragraph => {
+      const hasEntity = entityTexts.some(entity => paragraph.includes(entity));
+      if (hasEntity) count += 1;
+    });
+    return count;
   }
 
   function getMaxEntityFrequency(data) {
@@ -388,9 +462,9 @@
   }
 
   // ── Renderizado ───────────────────────────────────────────────────────
-  function updateDataSourceLabel(source, data, totalParagraphs = null) {
+  function updateDataSourceLabel(source, data, totalParagraphs = null, cleanedText = "") {
     const entities = Array.isArray(data) ? data.length : 0;
-    const paragraphsWithEntities = getParagraphsWithEntitiesCount(data);
+    const paragraphsWithEntities = getParagraphsWithEntitiesCount(data, cleanedText);
     const isEmpty = entities === 0;
     const baseColor = isEmpty ? "#c44d56" : "#999";
 
@@ -421,14 +495,41 @@
       mode: panelState.mode,
       cleanedText: panelState.cleanedText,
     });
-    updateDataSourceLabel(panelState.source, panelState.data, panelState.totalParagraphs);
+    updateDataSourceLabel(panelState.source, panelState.data, panelState.totalParagraphs, panelState.cleanedText);
   }
 
   function updateChartModeButton() {
-    if (!chartModeBtn) return;
-    chartModeBtn.textContent = chartViewMode === "frequency" ? "Vista: Frecuencia" : "Vista: Original";
+    if (chartOriginalBtn) {
+      chartOriginalBtn.classList.toggle("active", chartViewMode === "standard");
+    }
+    if (chartFrequencyBtn) {
+      chartFrequencyBtn.classList.toggle("active", chartViewMode === "frequency");
+    }
+    if (chartRelationsBtn) {
+      chartRelationsBtn.hidden = false;
+      chartRelationsBtn.classList.toggle("active", chartViewMode === "relations");
+      chartRelationsBtn.textContent = "Vista: Relaciones";
+    }
+    if (chartHelp) {
+      chartHelp.hidden = false;
+    }
+    if (chartRelationsHelp) {
+      chartRelationsHelp.hidden = chartViewMode !== "relations";
+    }
     if (frequencyScaleControls) {
       frequencyScaleControls.style.display = chartViewMode === "frequency" ? "flex" : "none";
+    }
+  }
+
+  function switchChartView(nextMode) {
+    const resolvedMode = chartViewMode === nextMode ? previousChartViewMode : nextMode;
+    if (!resolvedMode || resolvedMode === chartViewMode) return;
+
+    previousChartViewMode = chartViewMode;
+    chartViewMode = resolvedMode;
+
+    if (chartViewMode === "standard" || chartViewMode === "frequency") {
+      baseChartViewMode = chartViewMode;
     }
   }
 
@@ -448,7 +549,20 @@
 
   function renderChartByMode(data, axisRange = null) {
     if (!currentChart) return;
+    if (chartViewMode === "relations") {
+      resetFrequencyExpansion();
+      initTSNERelationsChart(currentChart, data, axisRange, {
+        minEntityFrequency: 1,
+        topEntities: 40,
+        minSentenceCooccurrence: 1,
+        scoreThreshold: 0.16,
+        maxEdges: 120,
+        isolateSelection: false,
+      });
+      return;
+    }
     if (chartViewMode === "frequency") {
+      resetRelationsSelection();
       if (frequencyScaleMode === "global") {
         globalFrequencyReferenceMax = Math.max(globalFrequencyReferenceMax, getMaxEntityFrequency(data));
       }
@@ -458,6 +572,7 @@
       });
       return;
     }
+    resetRelationsSelection();
     initTSNEChart(currentChart, data, axisRange);
   }
 
@@ -587,6 +702,7 @@
       currentChart = echarts.init(chartDom);
 
       resetFrequencyExpansion();
+      resetRelationsSelection();
       renderChartByMode(data);
 
       panelState.source          = source;
@@ -633,6 +749,7 @@
   // ── Selector de modelo ────────────────────────────────────────────────
   modelSelect.addEventListener("change", async () => {
     currentModelKey = modelSelect.value;
+    updateChartModeButton();
     const articleId  = document.getElementById("article-select").value;
     const source     = articleId === "example" ? "example" : "article";
     await loadAndRenderData(source, source === "example" ? null : articleId, currentModelKey);
@@ -662,16 +779,37 @@
   });
 
   // ── Toggle modo gráfica ───────────────────────────────────────────────
-  chartModeBtn?.addEventListener("click", () => {
+  chartOriginalBtn?.addEventListener("click", () => {
     const axisRange = getCurrentAxisRange(currentChart);
-    chartViewMode = chartViewMode === "standard" ? "frequency" : "standard";
+    switchChartView("standard");
     updateChartModeButton();
     if (currentChart && Array.isArray(panelState.data)) {
       resetFrequencyExpansion();
+      resetRelationsSelection();
+      renderChartByMode(panelState.data, axisRange);
+    }
+  });
+  chartFrequencyBtn?.addEventListener("click", () => {
+    const axisRange = getCurrentAxisRange(currentChart);
+    switchChartView("frequency");
+    updateChartModeButton();
+    if (currentChart && Array.isArray(panelState.data)) {
+      resetFrequencyExpansion();
+      resetRelationsSelection();
       renderChartByMode(panelState.data, axisRange);
     }
   });
   updateChartModeButton();
+
+  chartRelationsBtn?.addEventListener("click", () => {
+    const axisRange = getCurrentAxisRange(currentChart);
+    switchChartView("relations");
+    if (chartViewMode !== "relations") resetRelationsSelection();
+    updateChartModeButton();
+    if (currentChart && Array.isArray(panelState.data)) {
+      renderChartByMode(panelState.data, axisRange);
+    }
+  });
 
   frequencyScaleSelect?.addEventListener("change", () => {
     frequencyScaleMode = frequencyScaleSelect.value === "global" ? "global" : "article";

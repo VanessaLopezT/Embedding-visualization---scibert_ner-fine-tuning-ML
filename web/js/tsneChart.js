@@ -77,7 +77,7 @@ export function initTSNEChart(chart, data, axisRange = null) {
     },
 
     legend: {
-      top: 10,
+      top: 22,
       left: "center",
       orient: "horizontal",
       textStyle: {
@@ -99,7 +99,7 @@ export function initTSNEChart(chart, data, axisRange = null) {
       left: 60,
       right: 30,
       bottom: 40,
-      top: 70,
+      top: 82,
       containLabel: true
     },
 
@@ -167,7 +167,7 @@ export function initTSNEChart(chart, data, axisRange = null) {
   chart.off("mouseout");
   chart.on("mouseover", (params) => {
     if (params.data && params.data.id !== undefined) {
-      highlightEntityInPanel(params.data.id);
+      highlightEntityInPanel(params.data.id, params.data.entity);
     }
   });
 
@@ -178,8 +178,8 @@ export function initTSNEChart(chart, data, axisRange = null) {
   window.addEventListener("resize", () => chart.resize());
 }
 
-function highlightEntityInPanel(id) {
-  const entityEl = document.querySelector(`[data-id="${id}"]`);
+function highlightEntityInPanel(id, entityText = "") {
+  const entityEl = findEntityElement(id, entityText);
   if (entityEl) {
     entityEl.classList.add("highlighted");
     const panel = document.getElementById("text-panel");
@@ -188,6 +188,22 @@ function highlightEntityInPanel(id) {
       panel.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
     }
   }
+}
+
+function findEntityElement(id, entityText = "") {
+  let entityEl = document.querySelector(`[data-id="${id}"]`);
+  if (entityEl) return entityEl;
+  const key = normalizeEntityKey(entityText);
+  if (!key) return null;
+  return document.querySelector(`[data-entity-key="${key}"]`);
+}
+
+function normalizeEntityKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[“”"']/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function clearHighlightInPanel() {

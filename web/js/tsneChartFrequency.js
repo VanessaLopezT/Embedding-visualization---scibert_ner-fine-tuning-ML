@@ -32,13 +32,13 @@ export function initTSNEFrequencyChart(chart, data, axisRange = null, options = 
   chart.on("mouseover", (params) => {
     if (!params.data) return;
     if (params.data.id !== undefined) {
-      highlightEntityInPanel(params.data.id);
+      highlightEntityInPanel(params.data.id, params.data.entity);
       return;
     }
     if (params.data.isAggregate && Number(params.data.frequency || 0) <= 1) {
       const only = Array.isArray(params.data.occurrences) ? params.data.occurrences[0] : null;
       if (only && only.id !== undefined) {
-        highlightEntityInPanel(only.id);
+        highlightEntityInPanel(only.id, only.entity);
       }
     }
   });
@@ -53,18 +53,9 @@ export function initTSNEFrequencyChart(chart, data, axisRange = null, options = 
       if (Number(params.data.frequency || 0) <= 1) {
         const only = Array.isArray(params.data.occurrences) ? params.data.occurrences[0] : null;
         if (only && only.id !== undefined) {
-          highlightEntityInPanel(only.id);
+          highlightEntityInPanel(only.id, only.entity);
         }
         return;
-      }
-      // Si ya esta expandida y el click cae sobre una bolita interna,
-      // priorizar la bolita interna en lugar de colapsar la grande.
-      if (expandedEntityKey && expandedEntityKey === params.data.key) {
-        const hitOccurrence = findOccurrenceNearClick(chart, params);
-        if (hitOccurrence && hitOccurrence.id !== undefined) {
-          highlightEntityInPanel(hitOccurrence.id);
-          return;
-        }
       }
       expandedEntityKey = expandedEntityKey === params.data.key ? null : params.data.key;
       renderFrequency(chart, safeData);
@@ -72,14 +63,17 @@ export function initTSNEFrequencyChart(chart, data, axisRange = null, options = 
       return;
     }
     if (params.data.isOccurrence) {
-      // Click en bolita pequena: seleccionar, no colapsar.
+      // Click en bolita pequena: seleccionar y colapsar.
       if (params.data.id !== undefined) {
-        highlightEntityInPanel(params.data.id);
+        highlightEntityInPanel(params.data.id, params.data.entity);
       }
+      expandedEntityKey = null;
+      renderFrequency(chart, safeData);
+      clearChartHoverState(chart);
       return;
     }
     if (params.data.id !== undefined) {
-      highlightEntityInPanel(params.data.id);
+      highlightEntityInPanel(params.data.id, params.data.entity);
     }
   });
 
@@ -144,15 +138,15 @@ function renderFrequency(chart, data) {
 
   const option = {
     animation: true,
-    animationDuration: 350,
-    animationDurationUpdate: 350,
-    animationEasing: "cubicOut",
+    animationDuration: 0,
+    animationDurationUpdate: 0,
+    animationEasing: "linear",
     tooltip: {
       show: true,
       formatter: function(p) {
         if (p.data && p.data.isAggregate) {
           return "<b>" + p.data.entity + "</b><br/>Tipo dominante: " + p.data.label +
-                 "<br/>Frecuencia: " + p.data.frequency + "<br/>Click para ver ocurrencias";
+                 "<br/>Frecuencia: " + p.data.frequency;
         }
         return "<b>" + p.data.entity + "</b><br/>Tipo: " + (p.data.displayLabel || p.data.label);
       }
@@ -167,7 +161,7 @@ function renderFrequency(chart, data) {
       top: 20
     },
     legend: {
-      top: 10,
+      top: 22,
       left: "center",
       orient: "horizontal",
       textStyle: {
@@ -188,7 +182,7 @@ function renderFrequency(chart, data) {
       left: 60,
       right: 30,
       bottom: 40,
-      top: 70,
+      top: 82,
       containLabel: true
     },
     backgroundColor: "#fafafa",
@@ -342,28 +336,25 @@ function buildFrequencySeries(data, expandedKey, scaleOptions = {}) {
     if (!groupedByLabel[item.label]) groupedByLabel[item.label] = [];
     const isExpandedAggregate = Boolean(expandedKey) && item.key === expandedKey;
     const baseSize = sizeFromFrequency(item.frequency);
-    const expandedSize = Math.max(14, baseSize * 0.55);
-    groupedByLabel[item.label].push({
-      ...item,
-      isAggregate: true,
-      symbolSize: isExpandedAggregate ? expandedSize : baseSize,
-      // Mantenerla visible para colapsar, pero menos invasiva al expandir.
-      symbol: "circle",
-      itemStyle: isExpandedAggregate
-        ? { opacity: 0.28, borderWidth: 2 }
-        : undefined,
-      // Solo freq=1 provoca foco por categoria (como modo original).
-      emphasis: item.frequency <= 1
-        ? {
-            focus: "series",
-            scale: true,
-            itemStyle: { borderColor: "#333", borderWidth: 2 }
-          }
-        : {
-            scale: true,
-            itemStyle: { borderColor: "#333", borderWidth: 2 }
-          }
-    });
+    if (!isExpandedAggregate) {
+      groupedByLabel[item.label].push({
+        ...item,
+        isAggregate: true,
+        symbolSize: baseSize,
+        symbol: "circle",
+        // Solo freq=1 provoca foco por categoria (como modo original).
+        emphasis: item.frequency <= 1
+          ? {
+              focus: "series",
+              scale: true,
+              itemStyle: { borderColor: "#333", borderWidth: 2 }
+            }
+          : {
+              scale: true,
+              itemStyle: { borderColor: "#333", borderWidth: 2 }
+            }
+      });
+    }
   });
 
   if (expandedKey) {
@@ -427,8 +418,8 @@ function buildFrequencySeries(data, expandedKey, scaleOptions = {}) {
   }));
 }
 
-function highlightEntityInPanel(id) {
-  const entityEl = document.querySelector(`[data-id="${id}"]`);
+function highlightEntityInPanel(id, entityText = "") {
+  const entityEl = findEntityElement(id, entityText);
   if (entityEl) {
     entityEl.classList.add("highlighted");
     const panel = document.getElementById("text-panel");
@@ -437,6 +428,22 @@ function highlightEntityInPanel(id) {
       panel.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
     }
   }
+}
+
+function findEntityElement(id, entityText = "") {
+  let entityEl = document.querySelector(`[data-id="${id}"]`);
+  if (entityEl) return entityEl;
+  const key = normalizeEntityKey(entityText);
+  if (!key) return null;
+  return document.querySelector(`[data-entity-key="${key}"]`);
+}
+
+function normalizeEntityKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[“”"']/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function clearHighlightInPanel() {
