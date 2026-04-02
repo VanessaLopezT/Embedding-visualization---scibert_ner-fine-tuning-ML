@@ -15,6 +15,13 @@ urlpatterns = [
     path("api/articles/<str:article_id>/meta", views.get_article_meta, name="get_article_meta"),
     path("api/articles/<str:article_id>/cleaned-text", views.get_article_cleaned_text, name="get_article_cleaned_text"),
     path("api/articles/<str:article_id>/reprocess", views.reprocess_article, name="reprocess_article"),
+    # Workspaces
+    path("api/workspaces", views.workspaces, name="workspaces"),
+    path("api/workspaces/<str:workspace_id>", views.workspace_detail, name="workspace_detail"),
+    path("api/workspaces/<str:workspace_id>/articles", views.workspace_articles, name="workspace_articles"),
+    path("api/workspaces/<str:workspace_id>/process", views.workspace_process, name="workspace_process"),
+    path("api/workspaces/<str:workspace_id>/aggregate", views.workspace_aggregate, name="workspace_aggregate"),
+    path("api/workspaces/<str:workspace_id>/relations", views.workspace_relations, name="workspace_relations"),
     # Datos de ejemplo por modelo
     path("api/example/tsne", views.get_example_tsne, name="get_example_tsne"),
 ]

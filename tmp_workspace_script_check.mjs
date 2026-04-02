@@ -1,509 +1,4 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <title>SciBERT NER Visualization</title>
 
-  {% load static %}
-  <link rel="stylesheet" href="{% static 'css/style.css' %}?v=20260315" />
-  <link rel="stylesheet" href="{% static 'css/textPanel.css' %}?v=20260315" />
-  <style>
-    html, body { height: 100%; overflow: hidden !important; }
-  </style>
-
-  <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
-  <style>
-    /* ── HEADER ── */
-    .page-header {
-      padding: 16px 24px;
-      background: #ffffff;
-      border-bottom: 1px solid #e0e0e0;
-      position: fixed;
-      top: 0; left: 0; right: 0;
-      z-index: 10;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 16px;
-    }
-    .page-header h2 {
-      margin: 0;
-      font-size: 18px;
-      color: #1a1a1a;
-      font-weight: 600;
-      letter-spacing: 0.3px;
-      text-align: center;
-      flex: 1;
-    }
-    #container { margin-top: 70px; }
-
-    /* ── CONTROLES HEADER ── */
-    .upload-btn {
-      padding: 8px 16px;
-      background: #0d6efd;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 500;
-      transition: all 0.2s;
-    }
-    .upload-btn:hover { background: #0b5ed7; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .upload-btn:disabled { background: #ccc; cursor: not-allowed; }
-    #file-input { display: none; }
-
-    .loading-indicator {
-      display: none;
-      color: #0d6efd;
-      font-size: 13px;
-      margin-left: 10px;
-      font-weight: 500;
-      letter-spacing: 1px;
-    }
-    .loading-indicator.active {
-      display: inline;
-      animation: fade-pulse 1.5s ease-in-out infinite;
-    }
-
-    .header-left {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .header-right {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .article-select {
-      padding: 6px 10px;
-      border: 1px solid #d0d0d0;
-      border-radius: 4px;
-      font-size: 12px;
-      color: #333;
-      min-width: 220px;
-    }
-    .workspace-select {
-      padding: 6px 10px;
-      border: 1px solid #d0d0d0;
-      border-radius: 4px;
-      font-size: 12px;
-      color: #333;
-      min-width: 220px;
-      background: #fff;
-    }
-    .header-mode-toggle {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 4px;
-      border: 1px solid #dbe6f5;
-      border-radius: 999px;
-      background: #fff;
-      box-shadow: 0 1px 3px rgba(13,110,253,0.10);
-    }
-    .header-mode-btn,
-    .workspace-action-btn,
-    .workspace-view-btn {
-      border: 1px solid #d0d7de;
-      background: #f8f9fa;
-      color: #495057;
-      font-size: 12px;
-      font-weight: 600;
-      border-radius: 999px;
-      padding: 6px 10px;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-    .header-mode-btn:hover,
-    .workspace-action-btn:hover,
-    .workspace-view-btn:hover {
-      border-color: #0d6efd;
-      background: #e7f1ff;
-      color: #0b5ed7;
-    }
-    .header-mode-btn.active,
-    .workspace-action-btn.active,
-    .workspace-view-btn.active {
-      background: #e7f1ff;
-      border-color: #0d6efd;
-      color: #0d6efd;
-      box-shadow: 0 1px 3px rgba(13,110,253,0.18);
-    }
-    .workspace-action-btn:disabled,
-    .workspace-view-btn:disabled {
-      cursor: not-allowed;
-      opacity: 0.6;
-    }
-    .workspace-controls {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .workspace-subcontrols {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    [hidden] { display: none !important; }
-
-    /* Selector de modelo */
-    .model-select {
-      padding: 6px 10px;
-      border: 1px solid #9ec5fe;
-      border-radius: 4px;
-      font-size: 12px;
-      color: #0d6efd;
-      background: #f0f6ff;
-      font-weight: 500;
-      cursor: pointer;
-      min-width: 160px;
-    }
-    .model-select:hover { background: #e0eeff; }
-
-    /* ── BOTONES TOGGLE ── */
-    .data-toggle-btn {
-      font-size: 12px;
-      border: 1px solid #d0d7de;
-      background: #f8f9fa;
-      color: #495057;
-      cursor: pointer;
-      padding: 2px 8px;
-      border-radius: 999px;
-      transition: all 0.15s ease;
-      line-height: 1.35;
-    }
-    .data-toggle-btn:hover:not(:disabled) {
-      background: #eef4ff; border-color: #9ec5fe; color: #0a58ca;
-      transform: translateY(-1px);
-    }
-    .data-toggle-btn.active {
-      background: #e7f1ff; border-color: #0d6efd; color: #0d6efd;
-      font-weight: 600; box-shadow: 0 1px 3px rgba(13,110,253,0.18);
-    }
-    .data-toggle-btn:disabled { cursor: not-allowed; opacity: 0.6; }
-
-    /* ── BOTONES CHART ── */
-    .chart-view-controls {
-      position: absolute; top: 4px; right: 48px; z-index: 3;
-      display: flex; align-items: center; gap: 8px;
-      background: rgba(255,255,255,0.92);
-      border: 1px solid #dbe6f5;
-      border-radius: 999px;
-      padding: 4px;
-      box-shadow: 0 1px 3px rgba(13,110,253,0.10);
-    }
-    .chart-view-btn,
-    .chart-relations-btn {
-      border: 1px solid #d0d7de; background: #f8f9fa; color: #495057;
-      font-size: 12px; font-weight: 600; border-radius: 999px;
-      padding: 4px 10px; cursor: pointer;
-      transition: all 0.15s ease;
-    }
-    .chart-view-btn:hover,
-    .chart-relations-btn:hover { border-color: #0d6efd; background: #e7f1ff; color: #0b5ed7; }
-    .chart-view-btn.active,
-    .chart-relations-btn.active {
-      background: #e7f1ff; border-color: #0d6efd; color: #0d6efd;
-      box-shadow: 0 1px 3px rgba(13,110,253,0.18);
-    }
-    .chart-relations-btn[hidden] { display: none !important; }
-
-    .chart-help {
-      position: absolute; top: 10px; right: 12px; z-index: 3;
-    }
-    .chart-help-btn {
-      width: 24px; height: 24px; border-radius: 50%;
-      border: 1px solid #9ec5fe; background: #e7f1ff; color: #0d6efd;
-      font-size: 14px; font-weight: 700; line-height: 1; cursor: help;
-      display: inline-flex; align-items: center; justify-content: center;
-      box-shadow: 0 1px 3px rgba(13,110,253,0.18);
-    }
-    .chart-help-tooltip {
-      position: absolute; top: 30px; right: 0;
-      width: 320px; max-width: min(320px, 70vw);
-      background: #ffffff; color: #495057;
-      border: 1px solid #dbe6f5; padding: 10px 12px; border-radius: 8px;
-      font-size: 12px; line-height: 1.45; text-align: left;
-      opacity: 0; transform: translateY(-4px); pointer-events: none;
-      transition: opacity 0.15s ease, transform 0.15s ease;
-      box-shadow: 0 8px 20px rgba(13,110,253,0.12);
-    }
-    .chart-help:hover .chart-help-tooltip,
-    .chart-help:focus-within .chart-help-tooltip {
-      opacity: 1; transform: translateY(0);
-    }
-    .chart-help-tooltip strong { color: #0d6efd; font-weight: 700; }
-
-    /* ── BARRA DE PROGRESO ── */
-    #progress-container {
-      display: none;
-      position: fixed; top: 70px; left: 24px; right: 24px;
-      z-index: 9; padding: 4px 8px;
-      background: #ffffff; border: 1px solid #ececec; border-radius: 6px;
-    }
-
-    @keyframes fade-pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.6; }
-    }
-  </style>
-</head>
-<body style="overflow:hidden;">
-<div id="app" style="height:100vh; display:flex; flex-direction:column; overflow:hidden;">
-
-<!-- ── HEADER ── -->
-<div class="page-header">
-  <div class="header-left">
-    <!-- Selector de artículo -->
-    <div class="header-mode-toggle">
-      <button id="mode-articles-btn" class="header-mode-btn active" type="button">Art&iacute;culos</button>
-      <button id="mode-workspaces-btn" class="header-mode-btn" type="button">Workspaces</button>
-    </div>
-    <div id="article-controls" class="workspace-controls">
-      <select id="article-select" class="article-select">
-        <option value="">Seleccionar articulo</option>
-      </select>
-    </div>
-    <div id="workspace-controls" class="workspace-controls" hidden>
-      <select id="workspace-select" class="workspace-select">
-        <option value="">Seleccionar workspace</option>
-      </select>
-      <div id="workspace-article-controls" class="workspace-subcontrols" hidden>
-        <select id="workspace-article-select" class="article-select">
-          <option value="">Seleccionar art&iacute;culo del workspace</option>
-        </select>
-      </div>
-      <div class="header-mode-toggle" hidden>
-        <button id="workspace-view-articles-btn" class="workspace-view-btn active" type="button">Vista: Articulos</button>
-        <button id="workspace-view-global-btn" class="workspace-view-btn" type="button" disabled title="Proximamente">Vista: Global</button>
-      </div>
-    </div>
-    <!-- Selector de modelo (tech / cmt) -->
-    <select id="model-select" class="model-select" title="Seleccionar modelo NER">
-      <option value="tech">ML / Technology</option>
-      <option value="cmt">Canine Mammary Tumor</option>
-    </select>
-  </div>
-
-  <h2>SciBERT &ndash; Entity Embeddings Visualization</h2>
-
-  <div class="header-right">
-    <button id="workspace-new-btn" class="workspace-action-btn" type="button" hidden>Nuevo</button>
-    <button id="workspace-manage-btn" class="workspace-action-btn" type="button" hidden disabled>Gestionar</button>
-    <button id="workspace-process-btn" class="workspace-action-btn" type="button" hidden disabled>Procesar</button>
-    <button class="upload-btn" id="upload-article-btn">Cargar Art&iacute;culo</button>
-    <span class="loading-indicator" id="loading">Procesando...</span>
-    <span id="entities-summary" style="font-size:12px; color:#666; margin-left:12px;">Entidades: -</span>
-    <input type="file" id="file-input" accept=".txt,.pdf" multiple />
-  </div>
-</div>
-
-<!-- ── BARRA DE PROGRESO ── -->
-<div id="progress-container">
-  <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:11px; color:#555; margin-bottom:4px;">
-    <span id="progress-label">Procesando...</span>
-    <button id="progress-close" type="button" aria-label="Cerrar progreso"
-      style="border:none; background:transparent; color:#999; cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">x</button>
-  </div>
-  <div style="height:6px; background:#eee; border-radius:6px; overflow:hidden;">
-    <div id="progress-bar" style="height:6px; width:0%; background:#0d6efd; transition: width 0.3s;"></div>
-  </div>
-  <div id="entities-info" style="font-size:11px; color:#666; margin-top:4px;"></div>
-</div>
-
-<!-- ── CONTENIDO PRINCIPAL ── -->
-<div id="container" style="flex:1; min-height:0; overflow:hidden;">
-
-  <!-- Panel gráfica t-SNE -->
-  <div id="chart-panel" style="height: 100%; overflow: hidden;">
-    <div class="chart-view-controls">
-      <button id="chart-original-btn" class="chart-view-btn" type="button">Vista: Original</button>
-      <button id="chart-frequency-btn" class="chart-view-btn" type="button">Vista: Frecuencia</button>
-      <button id="chart-relations-btn" class="chart-relations-btn" type="button" hidden>Vista: Relaciones</button>
-    </div>
-
-    <div id="frequency-scale-controls"
-      style="position:absolute; top:4px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
-             border:1px solid #e0e0e0; border-radius:6px; padding:6px 8px;
-             display:none; align-items:center; gap:6px; font-size:12px; color:#444;">
-      <label for="frequency-scale-select" style="font-size:12px;">Escala:</label>
-      <select id="frequency-scale-select" style="font-size:12px; border:1px solid #d0d0d0; border-radius:4px; padding:2px 4px;">
-        <option value="article">Por art&iacute;culo</option>
-        <option value="global">Global</option>
-      </select>
-    </div>
-
-    <div id="workspace-relations-filter-controls"
-      style="position:absolute; top:4px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
-             border:1px solid #e0e0e0; border-radius:6px; padding:6px 8px;
-             display:none; align-items:center; gap:6px; font-size:12px; color:#444;">
-      <label for="workspace-relations-filter-select" style="font-size:12px;">Mostrar:</label>
-      <select id="workspace-relations-filter-select" style="font-size:12px; border:1px solid #d0d0d0; border-radius:4px; padding:2px 4px;">
-        <option value="all" selected>Todo</option>
-        <option value="connected">Solo relacionadas</option>
-      </select>
-    </div>
-
-    <div id="workspace-chart-summary"
-      style="position:absolute; top:46px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
-             border:1px solid #e0e0e0; border-radius:6px; padding:6px 10px;
-             display:none; align-items:center; gap:6px; font-size:12px; color:#444; max-width:420px;">
-    </div>
-
-    <div id="chart-help" class="chart-help" aria-label="Ayuda de la gr&aacute;fica">
-      <button class="chart-help-btn" type="button" aria-label="&iquest;Qu&eacute; muestra esta gr&aacute;fica?">?</button>
-      <div id="chart-help-tooltip" class="chart-help-tooltip" role="tooltip">
-        <strong>&iquest;Qu&eacute; ves aqu&iacute;?</strong><br>
-        Cada punto es una entidad detectada en el texto.<br><br>
-        <strong>Dimensi&oacute;n 1 y Dimensi&oacute;n 2</strong> son una proyecci&oacute;n 2D para visualizar
-        cercan&iacute;a sem&aacute;ntica: puntos cercanos aparecen en contextos parecidos.<br><br>
-        Si cambias a <strong>Vista: Frecuencia</strong>, cada palabra aparece una sola vez
-        y el tama&ntilde;o del punto representa cu&aacute;ntas veces se detect&oacute;.<br><br>
-        En <strong>Vista: Relaciones</strong>, cada nodo agrupa una entidad y su tama&ntilde;o
-        crece seg&uacute;n cu&aacute;ntas veces se repite; las l&iacute;neas muestran afinidad contextual
-        entre entidades del art&iacute;culo.<br><br>
-        Usa el <strong>selector de modelo</strong> (arriba izquierda) para cambiar entre
-        el modelo ML/Tech y el modelo de oncolog&iacute;a veterinaria (CMT).
-      </div>
-    </div>
-
-    <div id="chart-relations-help" class="chart-help" aria-label="Ayuda de relaciones" hidden
-      style="top: 42px; right: 12px;">
-      <button class="chart-help-btn" type="button" aria-label="&iquest;Qu&eacute; muestra la vista de relaciones?">?</button>
-      <div class="chart-help-tooltip" role="tooltip">
-        <strong>Detalles de la conexi&oacute;n</strong><br>
-        Esto te ayuda a entender los n&uacute;meros que salen al pasar sobre una conexi&oacute;n.<br><br>
-        <strong>Afinidad</strong>: es la fuerza total de la relaci&oacute;n.
-        Si es m&aacute;s alta, la conexi&oacute;n es m&aacute;s fuerte y confiable.<br><br>
-        <strong>Coocurrencias en frase</strong>: cu&aacute;ntas veces aparecen juntas en la misma frase.
-        Si este n&uacute;mero sube, hay m&aacute;s evidencia directa de relaci&oacute;n.<br><br>
-        <strong>Solapamiento en chunk</strong>: qu&eacute; tanto coinciden en los mismos fragmentos del texto.
-        Si es m&aacute;s alto, comparten m&aacute;s contexto general.<br><br>
-        <strong>Similitud de contexto</strong>: indica si ambas entidades suelen estar rodeadas de conceptos parecidos.
-        Si es m&aacute;s alta, sus entornos tem&aacute;ticos se parecen m&aacute;s.<br><br>
-        <strong>NPMI contextual</strong>: mide si aparecen juntas m&aacute;s de lo esperado por azar.
-        Si es m&aacute;s alto, esa asociaci&oacute;n es m&aacute;s especial y menos casual.
-      </div>
-    </div>
-
-    <div id="tsne-chart"></div>
-  </div>
-
-  <div id="resizer"></div>
-
-  <!-- Panel texto analizado -->
-  <div id="text-panel" style="height: 100%; overflow-y: auto;">
-    <div style="margin-bottom: 15px;">
-      <h2 style="text-align:center; margin-bottom: 8px;">Texto Analizado</h2>
-      <div style="text-align:center;">
-        <span id="data-source" style="font-size: 12px; color: #999;">
-          <span id="data-source-label">Datos de ejemplo</span> &middot;
-          <button id="btn-entities-only" class="data-toggle-btn active" type="button">P&aacute;rrafos con entidades: -</button>
-          &middot;
-          <button id="btn-all-paragraphs" class="data-toggle-btn" type="button">P&aacute;rrafos totales: -</button>
-          &middot;
-          <span id="entities-count">Entidades: -</span>
-        </span>
-      </div>
-    </div>
-    <div id="text-content"></div>
-  </div>
-</div>
-
-</div>
-
-
-<!-- ── MODAL: procesar con otro modelo ── -->
-<div id="modal-workspace-create" style="display:none; position:fixed; inset:0; z-index:210;
-     background:rgba(0,0,0,0.45); align-items:center; justify-content:center;">
-  <div style="background:#fff; border-radius:10px; padding:28px 32px; max-width:460px; width:92%;
-              box-shadow:0 12px 40px rgba(0,0,0,0.2); font-family: inherit;">
-    <h3 style="margin:0 0 14px; font-size:16px; color:#1a1a1a;">Nuevo Workspace</h3>
-    <div style="display:flex; flex-direction:column; gap:12px;">
-      <label style="display:flex; flex-direction:column; gap:6px; font-size:13px; color:#444;">
-        Nombre
-        <input id="workspace-name-input" type="text"
-          style="padding:8px 10px; border:1px solid #d0d0d0; border-radius:6px; font-size:13px;">
-      </label>
-      <label style="display:flex; flex-direction:column; gap:6px; font-size:13px; color:#444;">
-        Descripci&oacute;n
-        <textarea id="workspace-description-input" rows="3"
-          style="padding:8px 10px; border:1px solid #d0d0d0; border-radius:6px; font-size:13px; resize:vertical;"></textarea>
-      </label>
-    </div>
-    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:18px;">
-      <button id="workspace-create-cancel-btn" type="button"
-        style="padding:8px 18px; border:1px solid #d0d0d0; background:#f8f9fa;
-               color:#555; border-radius:5px; cursor:pointer; font-size:13px;">
-        Cancelar
-      </button>
-      <button id="workspace-create-save-btn" type="button"
-        style="padding:8px 18px; border:none; background:#0d6efd;
-               color:#fff; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600;">
-        Crear
-      </button>
-    </div>
-  </div>
-</div>
-
-<div id="modal-workspace-manage" style="display:none; position:fixed; inset:0; z-index:210;
-     background:rgba(0,0,0,0.45); align-items:center; justify-content:center;">
-  <div style="background:#fff; border-radius:10px; padding:28px 32px; max-width:760px; width:94%;
-              max-height:86vh; overflow:auto; box-shadow:0 12px 40px rgba(0,0,0,0.2); font-family: inherit;">
-    <h3 id="workspace-manage-title" style="margin:0 0 14px; font-size:16px; color:#1a1a1a;">Gestionar Workspace</h3>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:18px;">
-      <div>
-        <h4 style="margin:0 0 10px; font-size:14px; color:#333;">Art&iacute;culos en el workspace</h4>
-        <div id="workspace-current-articles" style="display:flex; flex-direction:column; gap:8px;"></div>
-      </div>
-      <div>
-        <h4 style="margin:0 0 10px; font-size:14px; color:#333;">Art&iacute;culos disponibles</h4>
-        <div id="workspace-available-articles" style="display:flex; flex-direction:column; gap:8px;"></div>
-      </div>
-    </div>
-    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:18px;">
-      <button id="workspace-manage-delete-btn" type="button"
-        style="margin-right:auto; padding:8px 18px; border:1px solid #dc3545; background:#fff5f5;
-               color:#b42318; border-radius:5px; cursor:pointer; font-size:13px;">
-        Eliminar workspace
-      </button>
-      <button id="workspace-manage-close-btn" type="button"
-        style="padding:8px 18px; border:1px solid #d0d0d0; background:#f8f9fa;
-               color:#555; border-radius:5px; cursor:pointer; font-size:13px;">
-        Cerrar
-      </button>
-    </div>
-  </div>
-</div>
-
-<div id="modal-process-model" style="display:none; position:fixed; inset:0; z-index:200;
-     background:rgba(0,0,0,0.45); align-items:center; justify-content:center;">
-  <div style="background:#fff; border-radius:10px; padding:28px 32px; max-width:420px; width:90%;
-              box-shadow:0 12px 40px rgba(0,0,0,0.2); font-family: inherit;">
-    <h3 style="margin:0 0 10px; font-size:16px; color:#1a1a1a;">Resultados no disponibles</h3>
-    <p id="modal-process-msg" style="margin:0 0 20px; font-size:13px; color:#555; line-height:1.6;">
-      Este artículo aún no ha sido procesado con el modelo seleccionado. ¿Deseas procesarlo ahora?
-    </p>
-    <div style="display:flex; gap:10px; justify-content:flex-end;">
-      <button id="modal-cancel-btn" type="button"
-        style="padding:8px 18px; border:1px solid #d0d0d0; background:#f8f9fa;
-               color:#555; border-radius:5px; cursor:pointer; font-size:13px;">
-        Cancelar
-      </button>
-      <button id="modal-process-btn" type="button"
-        style="padding:8px 18px; border:none; background:#0d6efd;
-               color:#fff; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600;">
-        Procesar ahora
-      </button>
-    </div>
-  </div>
-</div>
-
-<script type="module">
   import { loadTSNEData }                                from "{% static 'js/dataLoader.js' %}?v=20260315";
   import { initTSNEChart }                               from "{% static 'js/tsneChart.js' %}?v=20260327";
   import { initTSNEFrequencyChart, resetFrequencyExpansion } from "{% static 'js/tsneChartFrequency.js' %}?v=20260327";
@@ -512,16 +7,6 @@
   import { initWorkspaceRelationsChart, resetWorkspaceRelationsSelection } from "{% static 'js/workspaceRelationsChart.js' %}?v=20260401";
   import { renderText }                                  from "{% static 'js/textPanel.js' %}?v=20260324";
   import { listWorkspaces, getWorkspace, createWorkspace, updateWorkspaceArticles, processWorkspace, deleteWorkspace } from "{% static 'js/workspaceApi.js' %}?v=20260401";
-  import {
-    getCachedArticleView,
-    setCachedArticleView,
-    invalidateArticleView,
-    getCachedWorkspaceAggregate,
-    setCachedWorkspaceAggregate,
-    getCachedWorkspaceRelations,
-    setCachedWorkspaceRelations,
-    invalidateWorkspaceView,
-  } from "{% static 'js/viewDataCache.js' %}?v=20260401";
 
   // ── URLs de API ──────────────────────────────────────────────────────
   const config = {
@@ -735,32 +220,6 @@
     workspaceChartSummary.style.display = currentScopeMode === "workspaces" && text ? "block" : "none";
   }
 
-  function applyArticleViewPayload(source, articleId, payload) {
-    const data = Array.isArray(payload?.data) ? payload.data : [];
-    const totalParagraphs = typeof payload?.totalParagraphs === "number" ? payload.totalParagraphs : null;
-    const articleTitle = payload?.articleTitle || null;
-    const cleanedText = payload?.cleanedText || "";
-
-    const chartDom = document.getElementById("tsne-chart");
-    if (currentChart) currentChart.dispose();
-    currentChart = echarts.init(chartDom);
-
-    resetFrequencyExpansion();
-    resetRelationsSelection();
-    renderChartByMode(data);
-
-    panelState.source = source;
-    panelState.articleId = articleId;
-    panelState.mode = "entities";
-    panelState.data = data;
-    panelState.totalParagraphs = totalParagraphs;
-    panelState.articleTitle = articleTitle;
-    panelState.cleanedText = cleanedText;
-
-    renderCurrentTextPanel();
-    if (entitiesSummary) entitiesSummary.textContent = `Entidades: ${panelState.data.length}`;
-  }
-
   function renderEmptyArticleState(message = "Selecciona un articulo para visualizar sus resultados.") {
     const chartDom = document.getElementById("tsne-chart");
     if (currentChart) currentChart.dispose();
@@ -822,16 +281,11 @@
     setWorkspaceChartSummary("");
   }
 
-  async function loadWorkspaceAggregate(workspaceId, modelKey = currentModelKey, options = {}) {
-    const forceRefresh = Boolean(options.forceRefresh);
-    let payload = forceRefresh ? null : getCachedWorkspaceAggregate(workspaceId, modelKey);
-    if (!payload) {
-      const response = await fetch(config.workspaceAggregateUrl(workspaceId, modelKey));
-      payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error || "No se pudo cargar la grafica del workspace");
-      }
-      setCachedWorkspaceAggregate(workspaceId, modelKey, payload);
+  async function loadWorkspaceAggregate(workspaceId, modelKey = currentModelKey) {
+    const response = await fetch(config.workspaceAggregateUrl(workspaceId, modelKey));
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || "No se pudo cargar la grafica del workspace");
     }
 
     const points = Array.isArray(payload.points) ? payload.points : [];
@@ -866,16 +320,11 @@
     );
   }
 
-  async function loadWorkspaceRelations(workspaceId, modelKey = currentModelKey, options = {}) {
-    const forceRefresh = Boolean(options.forceRefresh);
-    let payload = forceRefresh ? null : getCachedWorkspaceRelations(workspaceId, modelKey);
-    if (!payload) {
-      const response = await fetch(config.workspaceRelationsUrl(workspaceId, modelKey));
-      payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error || "No se pudo cargar la grafica de relaciones del workspace");
-      }
-      setCachedWorkspaceRelations(workspaceId, modelKey, payload);
+  async function loadWorkspaceRelations(workspaceId, modelKey = currentModelKey) {
+    const response = await fetch(config.workspaceRelationsUrl(workspaceId, modelKey));
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || "No se pudo cargar la grafica de relaciones del workspace");
     }
 
     const nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
@@ -912,6 +361,9 @@
     panelState.cleanedText = "";
     textContentEl.innerHTML = "";
     if (entitiesSummary) entitiesSummary.textContent = `Entidades: ${nodes.length}`;
+    setWorkspaceChartSummary(
+      `Entidades: ${Number(payload.unique_entity_count || nodes.length || 0)} · Ocurrencias: ${Number(payload.total_entity_occurrences || 0)}`
+    );
   }
 
   function updateChartModeButton() {
@@ -1121,8 +573,6 @@
       });
       const result = await resp.json();
       if (!resp.ok) throw new Error(result.error || "Error al reprocesar");
-      invalidateArticleView(articleId, modelKey);
-      invalidateWorkspaceView();
       await pollArticleStatus(articleId, result.article?.original_name || articleId);
     } catch (err) {
       isUploadInProgress = false;
@@ -1131,36 +581,22 @@
     }
   }
 
-  async function loadAndRenderData(source, articleId = null, modelKey = currentModelKey, options = {}) {
+  async function loadAndRenderData(source, articleId = null, modelKey = currentModelKey) {
     try {
-      const forceRefresh = Boolean(options.forceRefresh);
+      let data, totalParagraphs = null, articleTitle = null, cleanedText = "";
 
       if (source === "article" && articleId) {
-        const cachedPayload = forceRefresh ? null : getCachedArticleView(articleId, modelKey);
-        if (cachedPayload) {
-          applyArticleViewPayload(source, articleId, cachedPayload);
-          return;
-        }
-
-        let data;
-        let totalParagraphs = null;
-        let articleTitle = null;
-        let cleanedText = "";
-
         const response = await fetch(config.tsneUrl(articleId, modelKey));
         if (!response.ok) {
+          // Sin datos para este modelo → mostrar modal
           let artName = articleId;
           try {
             const metaR = await fetch(config.metaUrl(articleId));
-            if (metaR.ok) {
-              const m = await metaR.json();
-              artName = m?.article?.original_name || articleId;
-            }
+            if (metaR.ok) { const m = await metaR.json(); artName = m?.article?.original_name || articleId; }
           } catch (_) {}
           showModelModal(articleId, modelKey, artName);
           return;
         }
-
         const result = await response.json();
         data = result.data;
 
@@ -1172,36 +608,42 @@
           if (metaResp.ok) {
             const meta = await metaResp.json();
             if (meta?.progress?.total) totalParagraphs = meta.progress.total;
-            if (meta?.title) articleTitle = meta.title;
+            if (meta?.title)           articleTitle    = meta.title;
           }
           if (cleanedResp.ok) {
             const payload = await cleanedResp.json();
             if (payload?.text) {
-              cleanedText = payload.text;
+              cleanedText    = payload.text;
               totalParagraphs = extractBodyParagraphs(cleanedText).length;
             }
           }
         } catch (_) {}
 
-        const payload = {
-          data: Array.isArray(data) ? data : [],
-          totalParagraphs,
-          articleTitle,
-          cleanedText,
-        };
-        setCachedArticleView(articleId, modelKey, payload);
-        applyArticleViewPayload(source, articleId, payload);
-        return;
+      } else {
+        const result = await loadTSNEData(config.exampleUrl(modelKey));
+        data = result.data;
+        totalParagraphs = getParagraphsWithEntitiesCount(data);
       }
 
-      const result = await loadTSNEData(config.exampleUrl(modelKey));
-      const payload = {
-        data: Array.isArray(result.data) ? result.data : [],
-        totalParagraphs: getParagraphsWithEntitiesCount(result.data),
-        articleTitle: null,
-        cleanedText: "",
-      };
-      applyArticleViewPayload(source, articleId, payload);
+      const chartDom = document.getElementById("tsne-chart");
+      if (currentChart) currentChart.dispose();
+      currentChart = echarts.init(chartDom);
+
+      resetFrequencyExpansion();
+      resetRelationsSelection();
+      renderChartByMode(data);
+
+      panelState.source          = source;
+      panelState.articleId       = articleId;
+      panelState.mode            = "entities";
+      panelState.data            = Array.isArray(data) ? data : [];
+      panelState.totalParagraphs = totalParagraphs;
+      panelState.articleTitle    = articleTitle;
+      panelState.cleanedText     = cleanedText;
+
+      renderCurrentTextPanel();
+      if (entitiesSummary) entitiesSummary.textContent = `Entidades: ${panelState.data.length}`;
+
     } catch (error) {
       console.error("Error cargando datos:", error);
       alert("Error al cargar datos: " + error.message);
@@ -1333,8 +775,7 @@
     }
   }
 
-  async function loadWorkspace(workspaceId, options = {}) {
-    const forceRefresh = Boolean(options.forceRefresh);
+  async function loadWorkspace(workspaceId) {
     if (!workspaceId) {
       currentWorkspaceId = "";
       currentWorkspaceData = null;
@@ -1346,9 +787,8 @@
       return;
     }
     try {
-      const workspace = !forceRefresh && currentWorkspaceData && currentWorkspaceId === workspaceId
-        ? currentWorkspaceData
-        : (await getWorkspace(workspaceId)).workspace || null;
+      const result = await getWorkspace(workspaceId);
+      const workspace = result.workspace || null;
       currentWorkspaceId = workspaceId;
       currentWorkspaceData = workspace;
       renderWorkspaceArticleOptions(workspace);
@@ -1447,7 +887,6 @@
         currentArticles.forEach(article => {
           workspaceCurrentArticlesEl.appendChild(createWorkspaceArticleRow(article, "Quitar", async () => {
             await updateWorkspaceArticles(currentWorkspaceId, [article.id], "remove");
-            invalidateWorkspaceView(currentWorkspaceId);
             await refreshWorkspaceList(currentWorkspaceId);
             await loadWorkspace(currentWorkspaceId);
             await renderWorkspaceManageModal();
@@ -1464,7 +903,6 @@
         availableArticles.forEach(article => {
           workspaceAvailableArticlesEl.appendChild(createWorkspaceArticleRow({ ...article, models: {} }, "Agregar", async () => {
             await updateWorkspaceArticles(currentWorkspaceId, [article.id], "add");
-            invalidateWorkspaceView(currentWorkspaceId);
             await refreshWorkspaceList(currentWorkspaceId);
             await loadWorkspace(currentWorkspaceId);
             await renderWorkspaceManageModal();
@@ -1520,10 +958,6 @@
       renderEmptyArticleState();
       return;
     }
-    if (panelState.source === "article" && panelState.articleId === articleId && Array.isArray(panelState.data) && panelState.data.length) {
-      applyArticleViewPayload("article", articleId, panelState);
-      return;
-    }
     await loadAndRenderData("article", articleId, currentModelKey);
   });
 
@@ -1532,9 +966,7 @@
     currentScopeMode = "workspaces";
     updateScopeControls();
     updateChartModeButton();
-    if (!workspaceListState.length) {
-      await refreshWorkspaceList(currentWorkspaceId);
-    }
+    await refreshWorkspaceList(currentWorkspaceId);
     if (currentWorkspaceId) {
       await loadWorkspace(currentWorkspaceId);
     } else {
@@ -1580,7 +1012,6 @@
       const result = await createWorkspace({ name, description });
       closeWorkspaceCreateModal();
       currentWorkspaceId = result.workspace?.id || "";
-      invalidateWorkspaceView(currentWorkspaceId);
       await refreshWorkspaceList(currentWorkspaceId);
       updateScopeControls();
       await loadWorkspace(currentWorkspaceId);
@@ -1604,7 +1035,6 @@
     try {
       await deleteWorkspace(currentWorkspaceId);
       closeWorkspaceManageModal();
-      invalidateWorkspaceView(currentWorkspaceId);
       currentWorkspaceId = "";
       currentWorkspaceData = null;
       await refreshWorkspaceList();
@@ -1633,7 +1063,6 @@
         alert("No hubo articulos para procesar en este workspace.");
         return;
       }
-      invalidateWorkspaceView(currentWorkspaceId, currentModelKey);
       await refreshWorkspaceList(currentWorkspaceId);
       await loadWorkspace(currentWorkspaceId);
       alert(`Workspace enviado a procesamiento en ${currentModelKey}: ${enqueued} encolados, ${skipped} omitidos.`);
@@ -1781,22 +1210,12 @@
       const result   = await response.json();
 
       if (response.ok && result.article) {
-        invalidateArticleView(result.article.id, currentModelKey);
-        if (currentScopeMode === "workspaces" && currentWorkspaceId) {
-          invalidateWorkspaceView(currentWorkspaceId, currentModelKey);
-        }
         await refreshArticleList();
         if (currentScopeMode === "workspaces" && currentWorkspaceId) {
           await refreshWorkspaceList(currentWorkspaceId);
         }
         await pollArticleStatus(result.article.id, files[0].name);
       } else if (response.ok && Array.isArray(result.articles) && result.articles.length) {
-        result.articles.forEach(article => {
-          if (article?.id) invalidateArticleView(article.id, currentModelKey);
-        });
-        if (currentScopeMode === "workspaces" && currentWorkspaceId) {
-          invalidateWorkspaceView(currentWorkspaceId, currentModelKey);
-        }
         await refreshArticleList();
         if (currentScopeMode === "workspaces" && currentWorkspaceId) {
           await refreshWorkspaceList(currentWorkspaceId);
@@ -1932,7 +1351,3 @@
     if (!suppressSuccessAlert && isUploadInProgress) hideProgress();
     return "timeout";
   }
-</script>
-
-</body>
-</html>

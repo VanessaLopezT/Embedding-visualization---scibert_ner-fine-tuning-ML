@@ -68,4 +68,10 @@ MODEL_TECH_CHECKPOINT = r"scibert_20260304_171958\best_model"
 # Modelo Canine Mammary Tumor (PubMedBERT fine-tuned)
 MODEL_CMT_CHECKPOINT = r"biobert_20260304_200826\best_model"
 
+# Runtime de procesamiento
+# 1 = máxima estabilidad; subirlo solo si la máquina soporta concurrencia real.
+PROCESSING_MAX_ACTIVE_JOBS = 1
+# Descargar el modelo del worker tras este tiempo inactivo.
+PROCESSING_WORKER_IDLE_SECONDS = 600
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

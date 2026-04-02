@@ -1,29 +1,21 @@
 """
-articles/views.py
-Vistas Django para la app de visualización NER dual-modelo.
+Vistas Django para la app de visualizacion NER dual-modelo.
 
 Modelos soportados:
-  - "tech" : SciBERT fine-tuned en literatura ML/Tech
-  - "cmt"  : PubMedBERT fine-tuned en oncología veterinaria (CMT)
+  - "tech": SciBERT fine-tuned en literatura ML/Tech
+  - "cmt" : PubMedBERT fine-tuned en oncologia veterinaria (CMT)
 
-Pipeline de procesamiento:
-  - Extracción de PDF: mod_extractor (selección inteligente de motor)
-  - Limpieza de secciones: mod_sections
-  - Detección de tablas: mod_tables
-  - Limpieza de símbolos: mod_symbols
-  - Chunking BERT-compatible: mod_chunker
-  - Fallback: prepare_article.ArticlePreprocessor
-  - NER + embeddings: process_ner.SciBERTNERProcessor (optimizado RAM)
-  - Proyección t-SNE/PCA: visualize_tsne_prepare
+La logica pesada de procesamiento vive en articles.processing_runtime:
+  - cola por modelo
+  - worker persistente
+  - reuso del modelo cargado
+  - reuso de cleaned_text cuando ya existe
 """
 
-import gc
+from __future__ import annotations
+
 import json
-import os
 import re
-import sys
-import threading
-import traceback
 import uuid
 from pathlib import Path
 
@@ -33,41 +25,33 @@ from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-# ─────────────────────────────────────────────────────────────
-# RUTAS BASE
-# ─────────────────────────────────────────────────────────────
+from .model_registry import MODEL_REGISTRY
+from .processing_runtime import submit_article_job
+from .workspace_projection import build_workspace_projection
+from .workspace_relations import build_workspace_relations
+from .workspace_service import (
+    add_workspace_articles,
+    create_workspace_with_validation,
+    delete_workspace_with_validation,
+    enqueue_workspace_processing,
+    get_workspace_summary,
+    list_workspace_summaries,
+    remove_workspace_articles,
+    update_workspace_metadata,
+)
+
+
 DATA_DIR = settings.DATA_DIR
 ARTICLES_DIR = DATA_DIR / "articles"
 EXAMPLE_DIR = DATA_DIR / "example"
-PROCESSING_DIR = settings.BASE_DIR / "processing"
 
 ARTICLES_DIR.mkdir(parents=True, exist_ok=True)
 EXAMPLE_DIR.mkdir(parents=True, exist_ok=True)
 
-# ─────────────────────────────────────────────────────────────
-# REGISTRO DE MODELOS
-# ─────────────────────────────────────────────────────────────
-MODEL_REGISTRY = {
-    "tech": {
-        "label": "ML / Technology",
-        "checkpoint": settings.MODEL_TECH_CHECKPOINT,
-        "example_tsne": EXAMPLE_DIR / "tsne_tech.json",
-        "description": "SciBERT fine-tuned en literatura ML y NLP",
-        "color_scheme": "blue",
-    },
-    "cmt": {
-        "label": "Canine Mammary Tumor",
-        "checkpoint": settings.MODEL_CMT_CHECKPOINT,
-        "example_tsne": EXAMPLE_DIR / "tsne_cmt.json",
-        "description": "PubMedBERT fine-tuned en oncología veterinaria (CMT)",
-        "color_scheme": "green",
-    },
-}
 
+MODEL_REGISTRY["tech"]["example_tsne"] = EXAMPLE_DIR / "tsne_tech.json"
+MODEL_REGISTRY["cmt"]["example_tsne"] = EXAMPLE_DIR / "tsne_cmt.json"
 
-# ─────────────────────────────────────────────────────────────
-# HELPERS DE RUTAS Y METADATOS
-# ─────────────────────────────────────────────────────────────
 
 def _article_dir(article_id: str) -> Path:
     return ARTICLES_DIR / article_id
@@ -114,9 +98,14 @@ def _write_progress(article_id: str, payload: dict):
         pass
 
 
-# ─────────────────────────────────────────────────────────────
-# VISTAS
-# ─────────────────────────────────────────────────────────────
+def _iter_uploaded_files(request) -> list:
+    files = request.FILES.getlist("file")
+    if files:
+        return files
+
+    uploaded = request.FILES.get("file")
+    return [uploaded] if uploaded is not None else []
+
 
 def index(request):
     return render(request, "index.html")
@@ -124,37 +113,38 @@ def index(request):
 
 @require_http_methods(["GET"])
 def get_models(request):
-    """Devuelve la lista de modelos disponibles."""
     models = [
         {
-            "key": k,
-            "label": v["label"],
-            "description": v["description"],
-            "color_scheme": v["color_scheme"],
+            "key": key,
+            "label": value["label"],
+            "description": value["description"],
+            "color_scheme": value["color_scheme"],
         }
-        for k, v in MODEL_REGISTRY.items()
+        for key, value in MODEL_REGISTRY.items()
     ]
     return JsonResponse({"models": models})
 
 
 @require_http_methods(["GET"])
 def list_articles(request):
-    """Lista todos los artículos con su estado actual."""
     articles = []
     if ARTICLES_DIR.exists():
-        for d in sorted(ARTICLES_DIR.iterdir()):
-            meta_file = d / "meta.json"
-            if meta_file.exists():
-                try:
-                    meta = json.loads(meta_file.read_text(encoding="utf-8"))
-                    articles.append({
-                        "id": meta.get("id", d.name),
-                        "original_name": meta.get("original_name", d.name),
-                        "status": meta.get("status", "unknown"),
-                        "model": meta.get("model", "tech"),
-                    })
-                except Exception:
-                    pass
+        for article_dir in sorted(ARTICLES_DIR.iterdir()):
+            meta_file = article_dir / "meta.json"
+            if not meta_file.exists():
+                continue
+            try:
+                meta = json.loads(meta_file.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if meta.get("status") != "processed":
+                continue
+            articles.append({
+                "id": meta.get("id", article_dir.name),
+                "original_name": meta.get("original_name", article_dir.name),
+                "status": meta.get("status", "unknown"),
+                "model": meta.get("model", "tech"),
+            })
     return JsonResponse({"articles": articles})
 
 
@@ -162,53 +152,82 @@ def list_articles(request):
 @require_http_methods(["POST"])
 def upload_article(request):
     """
-    Recibe un archivo PDF o TXT y lo procesa en background.
+    Recibe uno o varios archivos PDF/TXT y los encola para procesar.
 
-    Parámetros (multipart/form-data):
-      - file  : el documento
-      - model : "tech" | "cmt"  (por defecto: "tech")
+    Compatibilidad:
+    - Si llega un solo archivo, conserva la respuesta {"article": ...}
+    - Si llegan varios archivos, responde {"articles": [...], "rejected": [...]}
     """
-    uploaded = request.FILES.get("file")
-    if not uploaded:
+    uploaded_files = _iter_uploaded_files(request)
+    if not uploaded_files:
         return JsonResponse({"error": "No file provided"}, status=400)
 
     model_key = request.POST.get("model", "tech")
     if model_key not in MODEL_REGISTRY:
         return JsonResponse({"error": f"Modelo desconocido: '{model_key}'"}, status=400)
+    workspace_id = str(request.POST.get("workspace_id", "")).strip()
+    if workspace_id:
+        try:
+            get_workspace_summary(workspace_id)
+        except FileNotFoundError:
+            return JsonResponse({"error": "Workspace no encontrado"}, status=404)
 
-    suffix = Path(uploaded.name).suffix.lower()
-    if suffix not in (".pdf", ".txt"):
-        return JsonResponse({"error": "Solo se aceptan archivos .pdf y .txt"}, status=400)
+    accepted = []
+    rejected = []
 
-    article_id = str(uuid.uuid4())[:8]
-    article_dir = _article_dir(article_id)
-    article_dir.mkdir(parents=True, exist_ok=True)
+    for uploaded in uploaded_files:
+        suffix = Path(uploaded.name).suffix.lower()
+        if suffix not in (".pdf", ".txt"):
+            rejected.append({
+                "original_name": uploaded.name,
+                "error": "Solo se aceptan archivos .pdf y .txt",
+            })
+            continue
 
-    raw_path = article_dir / f"raw{suffix}"
-    with open(raw_path, "wb") as f:
-        for chunk in uploaded.chunks():
-            f.write(chunk)
+        article_id = str(uuid.uuid4())[:8]
+        article_dir = _article_dir(article_id)
+        article_dir.mkdir(parents=True, exist_ok=True)
 
-    meta = {
-        "id": article_id,
-        "original_name": uploaded.name,
-        "status": "queued",
-        "stage": "queued",
-        "model": model_key,
-        "raw_file": str(raw_path),
-        "error": None,
-    }
-    _write_json(_meta_path(article_id), meta)
-    _write_progress(article_id, {"stage": "queued", "percent": 0, "processed": 0, "total": 0})
+        raw_path = article_dir / f"raw{suffix}"
+        with open(raw_path, "wb") as file_obj:
+            for chunk in uploaded.chunks():
+                file_obj.write(chunk)
 
-    thread = threading.Thread(
-        target=_process_article_background,
-        args=(article_id, raw_path, model_key),
-        daemon=True,
-    )
-    thread.start()
+        meta = {
+            "id": article_id,
+            "original_name": uploaded.name,
+            "status": "queued",
+            "stage": "queued",
+            "model": model_key,
+            "raw_file": str(raw_path),
+            "error": None,
+        }
+        _write_json(_meta_path(article_id), meta)
+        _write_progress(article_id, {
+            "stage": "queued",
+            "percent": 0,
+            "processed": 0,
+            "total": 0,
+        })
 
-    return JsonResponse({"article": meta})
+        submit_article_job(article_id, raw_path, model_key, MODEL_REGISTRY[model_key]["checkpoint"])
+        accepted.append(meta)
+
+    if workspace_id and accepted:
+        add_workspace_articles(workspace_id, [item["id"] for item in accepted])
+
+    if not accepted:
+        error = rejected[0]["error"] if rejected else "No se pudo procesar la solicitud"
+        return JsonResponse({"error": error, "rejected": rejected}, status=400)
+
+    if len(uploaded_files) == 1 and len(accepted) == 1:
+        return JsonResponse({"article": accepted[0]})
+
+    return JsonResponse({
+        "articles": accepted,
+        "count": len(accepted),
+        "rejected": rejected,
+    })
 
 
 @require_http_methods(["GET"])
@@ -236,11 +255,9 @@ def get_article_meta(request, article_id):
     meta = _read_json(_meta_path(article_id))
     if not meta:
         return JsonResponse({"error": "Artículo no encontrado"}, status=404)
+
     progress = _read_json(_progress_path(article_id))
-
-    # Extraer título del texto limpio
     title = _extract_title_from_cleaned_text(_cleaned_text_path(article_id))
-
     return JsonResponse({"article": meta, "progress": progress, "title": title})
 
 
@@ -249,10 +266,12 @@ def get_article_cleaned_text(request, article_id):
     cleaned_path = _cleaned_text_path(article_id)
     if not cleaned_path.exists():
         return JsonResponse({"error": "Texto limpio no disponible"}, status=404)
+
     try:
         text = cleaned_path.read_text(encoding="utf-8")
     except Exception:
         return JsonResponse({"error": "Error leyendo texto limpio"}, status=404)
+
     return JsonResponse({"text": text, "source": "article"})
 
 
@@ -266,192 +285,133 @@ def get_example_tsne(request):
     return JsonResponse({"data": data})
 
 
-# ─────────────────────────────────────────────────────────────
-# PIPELINE DE PROCESAMIENTO EN BACKGROUND
-# ─────────────────────────────────────────────────────────────
-
-def _process_article_background(article_id: str, raw_path: Path, model_key: str):
-    """
-    Pipeline completo:
-      1. Extracción y limpieza (módulos modulares → fallback prepare_article)
-      2. NER con el modelo seleccionado
-      3. Proyección t-SNE / PCA
-      4. Guardado de resultados
-    """
-    sys.path.insert(0, str(PROCESSING_DIR))
-
-    meta = _read_json(_meta_path(article_id))
-    checkpoint = MODEL_REGISTRY[model_key]["checkpoint"]
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def workspaces(request):
+    if request.method == "GET":
+        return JsonResponse({"workspaces": list_workspace_summaries()})
 
     try:
-        # ── Etapa 1: Extracción y limpieza ──────────────────────────────
-        _write_json(_meta_path(article_id), {**meta, "status": "processing", "stage": "processing"})
-        _write_progress(article_id, {"stage": "processing", "percent": 10, "processed": 0, "total": 0})
+        body = json.loads(request.body or b"{}")
+    except Exception:
+        body = {}
 
-        paragraphs, cleaned_text = _extract_and_clean(raw_path, article_id)
+    name = str(body.get("name", "")).strip()
+    if not name:
+        return JsonResponse({"error": "El workspace requiere un nombre"}, status=400)
 
-        if not paragraphs:
-            raise ValueError("No se pudo extraer texto del documento.")
+    description = str(body.get("description", "")).strip()
+    article_ids = body.get("article_ids") or []
+    workspace = create_workspace_with_validation(name, description, article_ids)
+    return JsonResponse({"workspace": workspace}, status=201)
 
-        # Guardar texto limpio para el panel de texto
-        cleaned_path = _cleaned_text_path(article_id)
-        cleaned_path.write_text(cleaned_text, encoding="utf-8")
 
-        _write_progress(article_id, {
-            "stage": "ner", "percent": 30,
-            "processed": 0, "total": len(paragraphs),
-        })
+@csrf_exempt
+@require_http_methods(["GET", "PATCH", "DELETE"])
+def workspace_detail(request, workspace_id):
+    if request.method == "GET":
+        try:
+            return JsonResponse({"workspace": get_workspace_summary(workspace_id)})
+        except FileNotFoundError:
+            return JsonResponse({"error": "Workspace no encontrado"}, status=404)
 
-        # ── Etapa 2: NER ─────────────────────────────────────────────────
-        _write_json(_meta_path(article_id), {**meta, "status": "processing", "stage": "ner"})
+    if request.method == "DELETE":
+        deleted = delete_workspace_with_validation(workspace_id)
+        if not deleted:
+            return JsonResponse({"error": "Workspace no encontrado"}, status=404)
+        return JsonResponse({"deleted": True, "workspace_id": workspace_id})
 
-        from process_ner import SciBERTNERProcessor
+    try:
+        body = json.loads(request.body or b"{}")
+    except Exception:
+        body = {}
 
-        processor = SciBERTNERProcessor.__new__(SciBERTNERProcessor)
-        _init_processor(processor, checkpoint)
-
-        article_dir = _article_dir(article_id)
-        ner_output = str(_ner_path(article_id, model_key))
-        embeddings_output = str(article_dir / f"embeddings_{model_key}.npz")
-        tsne_output = str(_tsne_path(article_id, model_key))
-        progress_file = str(_progress_path(article_id))
-
-        processor.process_texts(
-            paragraphs,
-            output_file=ner_output,
-            entity_embeddings_file=embeddings_output,
-            tsne_output=tsne_output,
-            progress_file=progress_file,
+    try:
+        workspace = update_workspace_metadata(
+            workspace_id,
+            name=body.get("name"),
+            description=body.get("description"),
         )
-        processor.unload()
-        del processor
-        gc.collect()
+    except FileNotFoundError:
+        return JsonResponse({"error": "Workspace no encontrado"}, status=404)
 
-        # ── Completado ───────────────────────────────────────────────────
-        _write_json(_meta_path(article_id), {
-            **meta,
-            "status": "processed",
-            "stage": "completed",
-            "error": None,
-        })
-
-    except Exception as exc:
-        tb = traceback.format_exc()
-        print(f"[ERROR] Procesando artículo {article_id}:\n{tb}")
-        _write_json(_meta_path(article_id), {
-            **meta,
-            "status": "failed",
-            "stage": "failed",
-            "error": str(exc),
-        })
-        _write_progress(article_id, {"stage": "failed", "percent": 100, "error": str(exc)})
+    return JsonResponse({"workspace": workspace})
 
 
-def _init_processor(processor, checkpoint_path: str):
-    """Inicializa SciBERTNERProcessor con un checkpoint explícito."""
-    import torch
-    from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    ckpt = Path(checkpoint_path)
-    if not ckpt.is_absolute():
-        ckpt = settings.BASE_DIR / checkpoint_path
-    ckpt = ckpt.resolve()
-
-    if not ckpt.exists():
-        raise FileNotFoundError(f"Checkpoint no encontrado: {ckpt}")
-
-    # En Windows, HuggingFace rechaza rutas absolutas con backslash.
-    # Solución: hacer os.chdir() al directorio del checkpoint y cargar con ".".
-    original_cwd = os.getcwd()
+@csrf_exempt
+@require_http_methods(["POST"])
+def workspace_articles(request, workspace_id):
     try:
-        os.chdir(str(ckpt))
-        processor.device = device
-        processor.tokenizer = AutoTokenizer.from_pretrained(".", local_files_only=True)
-        # Forzar límite de 512 tokens — algunos checkpoints no lo declaran explícitamente
-        processor.tokenizer.model_max_length = 512
-        processor.model = AutoModelForTokenClassification.from_pretrained(".", local_files_only=True)
-    finally:
-        os.chdir(original_cwd)
+        body = json.loads(request.body or b"{}")
+    except Exception:
+        body = {}
 
-    processor.model.to(device)
-    processor.model.eval()
-    processor.ner_pipeline = pipeline(
-        "token-classification",
-        model=processor.model,
-        tokenizer=processor.tokenizer,
-        device=0 if device == "cuda" else -1,
-        aggregation_strategy="simple",
-    )
-    processor._loaded = True
-
-
-def _extract_and_clean(raw_path: Path, article_id: str):
-    """
-    Pipeline modular de extracción y limpieza:
-      mod_extractor → mod_sections → mod_tables → mod_symbols → mod_chunker
-
-    Devuelve: (chunks: list[str], cleaned_text: str)
-    Fallback: prepare_article.ArticlePreprocessor si el pipeline modular falla.
-    """
-    sys.path.insert(0, str(PROCESSING_DIR))
-    suffix = raw_path.suffix.lower()
+    article_ids = body.get("article_ids") or []
+    mode = body.get("mode", "add")
 
     try:
-        from mod_extractor import extract_text
-        from mod_sections import clean_all_sections
-        from mod_tables import mark_tables
-        from mod_symbols import clean_symbols
-        from mod_chunker import chunk_text
-
-        # 1. Extracción de texto
-        if suffix == ".pdf":
-            result = extract_text(str(raw_path))
-            raw_text = result["text"] if result["success"] else ""
-            print(f"  [extractor] motor={result['engine']} layout={result['layout']}")
+        if mode == "remove":
+            workspace = remove_workspace_articles(workspace_id, article_ids)
         else:
-            raw_text = raw_path.read_text(encoding="utf-8", errors="replace")
+            workspace = add_workspace_articles(workspace_id, article_ids)
+    except FileNotFoundError:
+        return JsonResponse({"error": "Workspace no encontrado"}, status=404)
 
-        if not raw_text.strip():
-            raise ValueError("Extracción vacía")
+    return JsonResponse({"workspace": workspace})
 
-        # 2. Limpieza de secciones (referencias, cabeceras, pies, figuras)
-        text = clean_all_sections(raw_text)
 
-        # 3. Marcado y eliminación de tablas
-        text = mark_tables(text)
-        import re
-        text = re.sub(r"<<TABLE_START>>.*?<<TABLE_END>>", "", text, flags=re.DOTALL)
-
-        # 4. Limpieza de símbolos y encoding
-        text = clean_symbols(text)
-
-        # 5. Chunking BERT-compatible
-        chunks = chunk_text(text)
-        chunks = [c for c in chunks if c.strip()]
-
-        print(f"  [pipeline] {len(chunks)} chunks tras limpieza modular")
-        return chunks, text
-
-    except Exception as e:
-        print(f"  [pipeline] Error en pipeline modular: {e}. Usando prepare_article como fallback.")
-
-    # ── Fallback: prepare_article.ArticlePreprocessor ────────────────────
+@csrf_exempt
+@require_http_methods(["POST"])
+def workspace_process(request, workspace_id):
     try:
-        from prepare_article import ArticlePreprocessor
-        preprocessor = ArticlePreprocessor()
-        if not preprocessor.load_article(str(raw_path)):
-            return [], ""
-        preprocessor.clean()
-        paragraphs = preprocessor.get_paragraphs()
-        cleaned_text = preprocessor.text
-        print(f"  [fallback] {len(paragraphs)} párrafos desde prepare_article")
-        return paragraphs, cleaned_text
-    except Exception as e2:
-        print(f"  [fallback] prepare_article también falló: {e2}")
-        return [], ""
+        body = json.loads(request.body or b"{}")
+    except Exception:
+        body = {}
+
+    model_key = body.get("model", "tech")
+    if model_key not in MODEL_REGISTRY:
+        return JsonResponse({"error": f"Modelo desconocido: '{model_key}'"}, status=400)
+
+    try:
+        result = enqueue_workspace_processing(workspace_id, model_key)
+    except FileNotFoundError:
+        return JsonResponse({"error": "Workspace no encontrado"}, status=404)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+
+    return JsonResponse(result)
 
 
+@require_http_methods(["GET"])
+def workspace_aggregate(request, workspace_id):
+    model_key = request.GET.get("model", "tech")
+    if model_key not in MODEL_REGISTRY:
+        return JsonResponse({"error": f"Modelo desconocido: '{model_key}'"}, status=400)
+
+    try:
+        payload = build_workspace_projection(workspace_id, model_key)
+    except FileNotFoundError:
+        return JsonResponse({"error": "Workspace no encontrado"}, status=404)
+    except Exception as exc:
+        return JsonResponse({"error": f"No se pudo construir la proyeccion del workspace: {exc}"}, status=500)
+
+    return JsonResponse(payload)
+
+
+@require_http_methods(["GET"])
+def workspace_relations(request, workspace_id):
+    model_key = request.GET.get("model", "tech")
+    if model_key not in MODEL_REGISTRY:
+        return JsonResponse({"error": f"Modelo desconocido: '{model_key}'"}, status=400)
+
+    try:
+        payload = build_workspace_relations(workspace_id, model_key)
+    except FileNotFoundError:
+        return JsonResponse({"error": "Workspace no encontrado"}, status=404)
+    except Exception as exc:
+        return JsonResponse({"error": f"No se pudieron construir las relaciones del workspace: {exc}"}, status=500)
+
+    return JsonResponse(payload)
 
 
 @csrf_exempt
@@ -464,10 +424,8 @@ def reprocess_article(request, article_id):
     Body JSON:
       { "model": "tech" | "cmt" }
     """
-    import json as _json
-
     try:
-        body = _json.loads(request.body or b"{}")
+        body = json.loads(request.body or b"{}")
     except Exception:
         body = {}
 
@@ -487,31 +445,32 @@ def reprocess_article(request, article_id):
     if not raw_path.exists():
         return JsonResponse({"error": "Archivo original no encontrado en disco"}, status=404)
 
-    # Actualizar meta con el nuevo modelo y estado
+    original_meta = dict(meta)
     meta["model"] = model_key
     meta["status"] = "queued"
     meta["stage"] = "queued"
     meta["error"] = None
     _write_json(_meta_path(article_id), meta)
-    _write_progress(article_id, {"stage": "queued", "percent": 0, "processed": 0, "total": 0})
+    _write_progress(article_id, {
+        "stage": "queued",
+        "percent": 0,
+        "processed": 0,
+        "total": 0,
+    })
 
-    thread = threading.Thread(
-        target=_process_article_background,
-        args=(article_id, raw_path, model_key),
-        daemon=True,
-    )
-    thread.start()
-
+    submitted = submit_article_job(article_id, raw_path, model_key, MODEL_REGISTRY[model_key]["checkpoint"])
+    if not submitted:
+        _write_json(_meta_path(article_id), original_meta)
+        return JsonResponse({
+            "error": "Ese artículo ya está en cola o procesándose para ese modelo",
+        }, status=409)
     return JsonResponse({"article": meta})
 
-# ─────────────────────────────────────────────────────────────
-# HELPERS INTERNOS
-# ─────────────────────────────────────────────────────────────
 
 def _extract_title_from_cleaned_text(cleaned_path: Path) -> str | None:
-    """Extrae el título del archivo de texto limpio (busca prefijo TITLE:)."""
     if not cleaned_path.exists():
         return None
+
     try:
         lines = cleaned_path.read_text(encoding="utf-8").splitlines()
         for line in lines[:30]:
@@ -521,7 +480,7 @@ def _extract_title_from_cleaned_text(cleaned_path: Path) -> str | None:
             match = re.match(r"^TITLE:\s*(.+)$", line, flags=re.IGNORECASE)
             if match:
                 return match.group(1).strip()
-        # Fallback: primer párrafo narrativo razonable
+
         for line in lines[:60]:
             line = line.strip()
             if not line:
@@ -536,4 +495,5 @@ def _extract_title_from_cleaned_text(cleaned_path: Path) -> str | None:
             return line
     except Exception:
         pass
+
     return None
