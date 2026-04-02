@@ -348,10 +348,22 @@
       </select>
     </div>
 
+    <div id="article-relations-filter-controls"
+      style="position:absolute; top:4px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
+             border:1px solid #e0e0e0; border-radius:6px; padding:6px 8px;
+             display:none; align-items:center; gap:6px; font-size:12px; color:#444;">
+      <label for="article-relations-filter-select" style="font-size:12px;">Mostrar:</label>
+      <select id="article-relations-filter-select" style="font-size:12px; border:1px solid #d0d0d0; border-radius:4px; padding:2px 4px;">
+        <option value="all" selected>Todo</option>
+        <option value="connected">Solo relacionadas</option>
+      </select>
+    </div>
+
     <div id="workspace-chart-summary"
-      style="position:absolute; top:46px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
+      style="position:absolute; top:62px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
              border:1px solid #e0e0e0; border-radius:6px; padding:6px 10px;
-             display:none; align-items:center; gap:6px; font-size:12px; color:#444; max-width:420px;">
+             display:none; font-size:12px; color:#444; max-width:420px; max-height:3.6em;
+             white-space:normal; word-break:break-word; overflow:hidden; text-overflow:ellipsis;">
     </div>
 
     <div id="chart-help" class="chart-help" aria-label="Ayuda de la gr&aacute;fica">
@@ -504,12 +516,12 @@
 </div>
 
 <script type="module">
-  import { loadTSNEData }                                from "{% static 'js/dataLoader.js' %}?v=20260315";
-  import { initTSNEChart }                               from "{% static 'js/tsneChart.js' %}?v=20260327";
-  import { initTSNEFrequencyChart, resetFrequencyExpansion } from "{% static 'js/tsneChartFrequency.js' %}?v=20260327";
-  import { initTSNERelationsChart, resetRelationsSelection } from "{% static 'js/tsneChartRelations.js' %}?v=20260327";
-  import { initWorkspaceAggregateChart }                 from "{% static 'js/workspaceAggregateChart.js' %}?v=20260401";
-  import { initWorkspaceRelationsChart, resetWorkspaceRelationsSelection } from "{% static 'js/workspaceRelationsChart.js' %}?v=20260401";
+  import { loadTSNEData }                                from "{% static 'js/dataLoader.js' %}?v=20260405";
+  import { initTSNEChart }                               from "{% static 'js/tsneChart.js' %}?v=20260405";
+  import { initTSNEFrequencyChart, resetFrequencyExpansion } from "{% static 'js/tsneChartFrequency.js' %}?v=20260405";
+  import { initTSNERelationsChart, resetRelationsSelection } from "{% static 'js/tsneChartRelations.js' %}?v=20260405";
+  import { initWorkspaceAggregateChart, resetWorkspaceAggregateExpansion } from "{% static 'js/workspaceAggregateChart.js' %}?v=20260406";
+  import { initWorkspaceRelationsChart, resetWorkspaceRelationsSelection } from "{% static 'js/workspaceRelationsChart.js' %}?v=20260405";
   import { renderText }                                  from "{% static 'js/textPanel.js' %}?v=20260324";
   import { listWorkspaces, getWorkspace, createWorkspace, updateWorkspaceArticles, processWorkspace, deleteWorkspace } from "{% static 'js/workspaceApi.js' %}?v=20260401";
   import {
@@ -548,6 +560,7 @@
   let currentWorkspaceId = "";
   let currentWorkspaceChartMode = "aggregate";
   let workspaceRelationsFilterMode = "all";
+  let articleRelationsFilterMode = "all";
   let currentWorkspaceVisibleEdgeCount = 0;
   let workspaceListState = [];
   let currentWorkspaceData = null;
@@ -581,6 +594,8 @@
   const frequencyScaleSelect   = document.getElementById("frequency-scale-select");
   const workspaceRelationsFilterControls = document.getElementById("workspace-relations-filter-controls");
   const workspaceRelationsFilterSelect = document.getElementById("workspace-relations-filter-select");
+  const articleRelationsFilterControls = document.getElementById("article-relations-filter-controls");
+  const articleRelationsFilterSelect = document.getElementById("article-relations-filter-select");
   const workspaceChartSummary = document.getElementById("workspace-chart-summary");
   const progressContainer      = document.getElementById("progress-container");
   const progressBar            = document.getElementById("progress-bar");
@@ -849,6 +864,7 @@
     if (currentChart) currentChart.dispose();
     currentChart = echarts.init(chartDom);
     resetFrequencyExpansion();
+    resetWorkspaceAggregateExpansion();
     resetRelationsSelection();
     initWorkspaceAggregateChart(currentChart, payload);
 
@@ -1058,6 +1074,9 @@
       if (workspaceRelationsFilterControls) {
         workspaceRelationsFilterControls.style.display = currentWorkspaceChartMode === "relations" ? "flex" : "none";
       }
+      if (articleRelationsFilterControls) {
+        articleRelationsFilterControls.style.display = "none";
+      }
       return;
     }
 
@@ -1102,6 +1121,9 @@
     if (workspaceRelationsFilterControls) {
       workspaceRelationsFilterControls.style.display = "none";
     }
+    if (articleRelationsFilterControls) {
+      articleRelationsFilterControls.style.display = chartViewMode === "relations" ? "flex" : "none";
+    }
   }
 
   function switchChartView(nextMode) {
@@ -1140,7 +1162,7 @@
         minSentenceCooccurrence: 1,
         scoreThreshold: 0.16,
         maxEdges: 120,
-        isolateSelection: false,
+        filterMode: articleRelationsFilterMode,
       });
       return;
     }
@@ -1841,11 +1863,18 @@
   });
 
   workspaceRelationsFilterSelect?.addEventListener("change", () => {
-    workspaceRelationsFilterMode = workspaceRelationsFilterSelect.value || "medium-high";
+    workspaceRelationsFilterMode = workspaceRelationsFilterSelect.value || "all";
     if (currentScopeMode !== "workspaces" || currentWorkspaceChartMode !== "relations") return;
     if (currentWorkspaceId) {
       loadWorkspace(currentWorkspaceId);
     }
+  });
+
+  articleRelationsFilterSelect?.addEventListener("change", () => {
+    articleRelationsFilterMode = articleRelationsFilterSelect.value || "all";
+    if (currentScopeMode !== "articles" || chartViewMode !== "relations" || !currentChart || !Array.isArray(panelState.data)) return;
+    const axisRange = getCurrentAxisRange(currentChart);
+    renderChartByMode(panelState.data, axisRange);
   });
 
   // ── Resizer ───────────────────────────────────────────────────────────

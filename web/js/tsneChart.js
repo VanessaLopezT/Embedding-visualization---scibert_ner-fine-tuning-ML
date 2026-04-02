@@ -48,10 +48,6 @@ export function initTSNEChart(chart, data, axisRange = null) {
     emphasis: {
       focus: "series",
       scale: true,
-      itemStyle: {
-        borderColor: "#333",
-        borderWidth: 2
-      }
     }
   }));
   const option = {

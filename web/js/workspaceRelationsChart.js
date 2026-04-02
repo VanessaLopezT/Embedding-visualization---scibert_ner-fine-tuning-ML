@@ -27,27 +27,7 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
   const visibilityFiltered = applyVisibilityFilter(model, filterMode);
   const filtered = applySelection(visibilityFiltered, activeWorkspaceRelationKey);
   const axisRange = computeAxisRange(filtered.nodes);
-  const edgeSeriesData = filtered.edges
-    .map(edge => {
-      const source = nodeMap.get(String(edge.source || ""));
-      const target = nodeMap.get(String(edge.target || ""));
-      if (!source || !target) return null;
-      return {
-        ...edge,
-        sourceEntity: edge.source_entity,
-        targetEntity: edge.target_entity,
-        coords: [
-          [Number(source.x || 0), Number(source.y || 0)],
-          [Number(target.x || 0), Number(target.y || 0)],
-        ],
-        lineStyle: {
-          color: edge.muted ? "#d6dde3" : EDGE_COLORS[edge.tier],
-          width: 2.4,
-          opacity: edge.muted ? 0.1 : 0.9,
-        },
-      };
-    })
-    .filter(Boolean);
+  const edgeSeriesData = buildEdgeSeriesData(filtered.edges, nodeMap);
 
   chart.off("click");
   chart.on("click", (params) => {
@@ -57,6 +37,19 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
     if (!hasConnections) return;
     activeWorkspaceRelationKey = activeWorkspaceRelationKey === datum.key ? null : datum.key;
     initWorkspaceRelationsChart(chart, payload, options);
+  });
+
+  chart.off("legendselectchanged");
+  chart.on("legendselectchanged", (params) => {
+    const selectedLabels = Object.keys(params.selected)
+      .filter(label => params.selected[label]);
+    const visibleNodeKeys = new Set(
+      payload.nodes
+        .filter(node => selectedLabels.includes(String(node.label || "")))
+        .map(node => String(node.key || ""))
+    );
+    const filteredEdgeData = buildEdgeSeriesData(filtered.edges, nodeMap, visibleNodeKeys);
+    chart.setOption({ series: [{ data: filteredEdgeData }] });
   });
 
   chart.setOption({
@@ -101,22 +94,31 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
       top: 20,
     },
     legend: {
-      top: 22,
+      type: "scroll",
+      top: 18,
       left: "center",
       orient: "horizontal",
+      pageButtonPosition: "end",
+      pageIconSize: 12,
+      pageTextStyle: {
+        fontSize: 11,
+        color: "#666",
+      },
+      pageIconColor: "#666",
       textStyle: {
-        fontSize: 13,
+        fontSize: 12,
         color: "#333",
         fontWeight: 500,
       },
-      backgroundColor: "rgba(255, 255, 255, 0.8)",
+      backgroundColor: "rgba(255, 255, 255, 0.9)",
       borderColor: "#e0e0e0",
       borderWidth: 1,
       borderRadius: 4,
       padding: 8,
-      itemGap: 25,
+      itemGap: 14,
       itemWidth: 12,
       itemHeight: 12,
+      width: "96%",
     },
     grid: {
       left: 60,
@@ -222,6 +224,39 @@ function normalizeFilterMode(filterMode) {
 
 function selectStrongWorkspaceEdges(edges) {
   return Array.isArray(edges) ? edges : [];
+}
+
+function buildEdgeSeriesData(edges, nodeMap, visibleNodeKeys = null) {
+  return Array.isArray(edges)
+    ? edges
+        .filter(edge => {
+          if (!visibleNodeKeys) return true;
+          return (
+            visibleNodeKeys.has(String(edge.source || "")) &&
+            visibleNodeKeys.has(String(edge.target || ""))
+          );
+        })
+        .map(edge => {
+          const source = nodeMap.get(String(edge.source || ""));
+          const target = nodeMap.get(String(edge.target || ""));
+          if (!source || !target) return null;
+          return {
+            ...edge,
+            sourceEntity: edge.source_entity,
+            targetEntity: edge.target_entity,
+            coords: [
+              [Number(source.x || 0), Number(source.y || 0)],
+              [Number(target.x || 0), Number(target.y || 0)],
+            ],
+            lineStyle: {
+              color: edge.muted ? "#d6dde3" : EDGE_COLORS[edge.tier],
+              width: 2.4,
+              opacity: edge.muted ? 0.1 : 1,
+            },
+          };
+        })
+        .filter(Boolean)
+    : [];
 }
 
 function computeEdgeThresholds(edges) {
@@ -337,6 +372,8 @@ function buildNodeSeries(nodes) {
     });
   });
 
+  const selectionActive = Boolean(activeWorkspaceRelationKey);
+
   return Array.from(grouped.entries()).map(([label, data]) => ({
     name: label,
     type: "scatter",
@@ -355,6 +392,7 @@ function buildNodeSeries(nodes) {
     },
     itemStyle: {
       color: getColorForLabel(label),
+      opacity: 1,
     },
   })).map(series => ({
     ...series,
@@ -362,12 +400,12 @@ function buildNodeSeries(nodes) {
       ...node,
       itemStyle: {
         color: getColorForLabel(node.label),
-        opacity: node.muted ? 0.22 : (node.selected ? 1 : 0.95),
+        opacity: selectionActive ? 1 : (node.muted ? 0.22 : 1),
         borderColor: node.selected ? "#212529" : "#ffffff",
         borderWidth: node.selected ? 2.4 : 1.2,
       },
       label: {
-        color: node.muted ? "#9aa1a7" : "#333",
+        color: selectionActive ? "#333" : (node.muted ? "#9aa1a7" : "#333"),
         fontWeight: node.selected ? 600 : 400,
       },
     })),

@@ -342,17 +342,10 @@ function buildFrequencySeries(data, expandedKey, scaleOptions = {}) {
         isAggregate: true,
         symbolSize: baseSize,
         symbol: "circle",
-        // Solo freq=1 provoca foco por categoria (como modo original).
-        emphasis: item.frequency <= 1
-          ? {
-              focus: "series",
-              scale: true,
-              itemStyle: { borderColor: "#333", borderWidth: 2 }
-            }
-          : {
-              scale: true,
-              itemStyle: { borderColor: "#333", borderWidth: 2 }
-            }
+        emphasis: {
+          focus: "series",
+          scale: true,
+        }
       });
     }
   });
@@ -377,7 +370,6 @@ function buildFrequencySeries(data, expandedKey, scaleOptions = {}) {
           emphasis: {
             focus: "series",
             scale: true,
-            itemStyle: { borderColor: "#222", borderWidth: 2 }
           }
         });
       });
@@ -409,11 +401,8 @@ function buildFrequencySeries(data, expandedKey, scaleOptions = {}) {
       fontWeight: "normal"
     },
     emphasis: {
+      focus: "series",
       scale: true,
-      itemStyle: {
-        borderColor: "#333",
-        borderWidth: 2
-      }
     }
   }));
 }

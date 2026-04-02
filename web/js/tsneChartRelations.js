@@ -21,7 +21,7 @@ const DEFAULT_OPTIONS = {
   minSentenceCooccurrence: 2,
   scoreThreshold: 0.24,
   maxEdges: 90,
-  isolateSelection: false,
+  filterMode: "all",
 };
 
 export function initTSNERelationsChart(chart, data, axisRange = null, options = {}) {
@@ -53,6 +53,10 @@ export function initTSNERelationsChart(chart, data, axisRange = null, options = 
     if (!datum || !datum.isRelationNode) return;
     const id = pickVisibleEntityId(datum.ids);
     if (id !== undefined) highlightEntityInPanel(id, datum.entity);
+    const clickedKey = String(datum.key || "");
+    if (!clickedKey) return;
+    activeRelationKey = activeRelationKey === clickedKey ? null : clickedKey;
+    renderRelations(chart, safeData, axisRange, relationOptions);
   });
 
   window.addEventListener("resize", () => chart.resize());
@@ -75,13 +79,14 @@ function sanitizeOptions(options) {
       clampNumber(options.scoreThreshold, 0, 1, DEFAULT_OPTIONS.scoreThreshold),
     ),
     maxEdges: clampInt(options.maxEdges, 10, 5000, DEFAULT_OPTIONS.maxEdges),
-    isolateSelection: Boolean(options.isolateSelection),
+    filterMode: options.filterMode === "connected" ? "connected" : "all",
   };
 }
 
 function renderRelations(chart, data, axisRange, options) {
   const model = buildRelationModel(data, options);
-  const filtered = applySelection(model, activeRelationKey, options);
+  const visibleModel = applyVisibilityFilter(model, options.filterMode);
+  const filtered = applySelection(visibleModel, activeRelationKey, options);
   const series = buildNodeSeries(filtered.nodes);
   const edgeSeries = buildEdgeSeries(filtered.edges);
   const relationLegend = buildRelationLegend();
@@ -206,6 +211,21 @@ function renderRelations(chart, data, axisRange, options) {
   };
 
   chart.setOption(option, true);
+
+  chart.off("legendselectchanged");
+  chart.on("legendselectchanged", (params) => {
+    const selectedLabels = Object.keys(params.selected).filter((label) => params.selected[label]);
+    const visibleNodeKeys = new Set(
+      filtered.nodes
+        .filter((node) => selectedLabels.includes(node.label))
+        .map((node) => node.key)
+    );
+    chart.setOption({
+      series: [
+        { id: edgeSeries.id, data: buildEdgeSeries(filtered.edges, visibleNodeKeys).data }
+      ]
+    });
+  });
 }
 
 function buildRelationModel(data, options) {
@@ -386,23 +406,9 @@ function buildEdge(sourceNode, targetNode, options, totals = {}) {
   };
 }
 
-function applySelection(model, selectedKey, options) {
+function applySelection(model, selectedKey /*, options */) {
   if (!selectedKey) return model;
   const edgeSet = model.edges.filter((edge) => edge.source === selectedKey || edge.target === selectedKey);
-  if (!options.isolateSelection) {
-    return {
-      nodes: model.nodes.map((node) => ({
-        ...node,
-        muted: node.key !== selectedKey && !edgeSet.some((edge) => edge.source === node.key || edge.target === node.key),
-        selected: node.key === selectedKey,
-      })),
-      edges: model.edges.map((edge) => ({
-        ...edge,
-        muted: edge.source !== selectedKey && edge.target !== selectedKey,
-      })),
-    };
-  }
-
   const connectedKeys = new Set([selectedKey]);
   edgeSet.forEach((edge) => {
     connectedKeys.add(edge.source);
@@ -412,29 +418,57 @@ function applySelection(model, selectedKey, options) {
   return {
     nodes: model.nodes
       .filter((node) => connectedKeys.has(node.key))
-      .map((node) => ({ ...node, selected: node.key === selectedKey })),
+      .map((node) => ({
+        ...node,
+        selected: node.key === selectedKey,
+      })),
     edges: edgeSet,
   };
 }
 
-function buildEdgeSeries(edges) {
-  const quartiles = computeScoreQuartiles(edges);
+function applyVisibilityFilter(model, filterMode) {
+  if (filterMode !== "connected") {
+    return model;
+  }
+
+  const connectedKeys = new Set();
+  model.edges.forEach((edge) => {
+    connectedKeys.add(edge.source);
+    connectedKeys.add(edge.target);
+  });
+
+  return {
+    nodes: model.nodes.filter((node) => connectedKeys.has(node.key)),
+    edges: model.edges,
+  };
+}
+
+function buildEdgeSeries(edges, visibleNodeKeys = null) {
+  const filteredEdges = Array.isArray(edges)
+    ? edges.filter((edge) => {
+        if (!visibleNodeKeys) return true;
+        return visibleNodeKeys.has(edge.source) && visibleNodeKeys.has(edge.target);
+      })
+    : [];
+  const quartiles = computeScoreQuartiles(filteredEdges);
   return {
     id: "relations-edges",
-    name: "Relaciones",
     type: "lines",
     coordinateSystem: "cartesian2d",
     z: 1,
     silent: false,
     polyline: false,
     effect: { show: false },
+    showInLegend: false,
+    showLegendSymbol: false,
+    legendHoverLink: false,
     lineStyle: {
       width: 1.8,
       opacity: 0.18,
       color: "#7f8c8d",
       curveness: 0.08,
     },
-    data: edges.map((edge) => ({
+    data: filteredEdges.map((edge) => ({
       ...edge,
       coords: edge.coords,
       lineStyle: {
@@ -444,6 +478,7 @@ function buildEdgeSeries(edges) {
         curveness: 0.08,
       }
     })),
+
     tooltip: { show: true }
   };
 }
@@ -470,6 +505,8 @@ function buildNodeSeries(nodes) {
     });
   });
 
+  const selectionActive = Boolean(activeRelationKey);
+
   return Object.keys(groups).map((label) => ({
     id: `rel-${label}`,
     name: label,
@@ -479,7 +516,7 @@ function buildNodeSeries(nodes) {
     symbolSize: (_value, params) => params?.data?.symbolSize ?? 14,
     itemStyle: {
       color: getColorForLabel(label),
-      opacity: 0.95,
+      opacity: 1,
       borderColor: "#ffffff",
       borderWidth: 1.2,
     },
@@ -495,12 +532,8 @@ function buildNodeSeries(nodes) {
       fontWeight: "normal"
     },
     emphasis: {
-      focus: "series",
+      focus: "none",
       scale: true,
-      itemStyle: {
-        borderColor: "#333",
-        borderWidth: 2
-      }
     },
     encode: { x: 0, y: 1 },
   })).map((series) => ({
@@ -509,12 +542,12 @@ function buildNodeSeries(nodes) {
       ...node,
       itemStyle: {
         color: getColorForLabel(node.entityType),
-        opacity: node.muted ? 0.22 : (node.selected ? 1 : 0.95),
+        opacity: selectionActive ? 1 : (node.muted ? 0.22 : 1),
         borderColor: node.selected ? "#212529" : "#ffffff",
         borderWidth: node.selected ? 2.4 : 1.2,
       },
       label: {
-        color: node.muted ? "#9aa1a7" : "#333",
+        color: selectionActive ? "#333" : (node.muted ? "#9aa1a7" : "#333"),
         fontWeight: node.selected ? 600 : 400,
       }
     }))
