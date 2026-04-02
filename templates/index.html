@@ -826,7 +826,7 @@
     const forceRefresh = Boolean(options.forceRefresh);
     let payload = forceRefresh ? null : getCachedWorkspaceAggregate(workspaceId, modelKey);
     if (!payload) {
-      const response = await fetch(config.workspaceAggregateUrl(workspaceId, modelKey));
+      const response = await fetch(config.workspaceAggregateUrl(workspaceId, modelKey), { cache: "no-store" });
       payload = await response.json();
       if (!response.ok) {
         throw new Error(payload.error || "No se pudo cargar la grafica del workspace");
@@ -836,6 +836,7 @@
 
     const points = Array.isArray(payload.points) ? payload.points : [];
     if (!points.length) {
+      if (!(await handleWorkspaceNoProcessedArticles(workspaceId, modelKey, payload))) return;
       renderEmptyWorkspaceState(
         payload.total_article_count > 0
           ? "Este workspace aun no tiene articulos procesados para el modelo seleccionado."
@@ -870,7 +871,7 @@
     const forceRefresh = Boolean(options.forceRefresh);
     let payload = forceRefresh ? null : getCachedWorkspaceRelations(workspaceId, modelKey);
     if (!payload) {
-      const response = await fetch(config.workspaceRelationsUrl(workspaceId, modelKey));
+      const response = await fetch(config.workspaceRelationsUrl(workspaceId, modelKey), { cache: "no-store" });
       payload = await response.json();
       if (!response.ok) {
         throw new Error(payload.error || "No se pudo cargar la grafica de relaciones del workspace");
@@ -880,6 +881,7 @@
 
     const nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
     if (!nodes.length) {
+      if (!(await handleWorkspaceNoProcessedArticles(workspaceId, modelKey, payload))) return;
       renderEmptyWorkspaceState(
         payload.total_article_count > 0
           ? "Este workspace aun no tiene articulos procesados para el modelo seleccionado."
@@ -912,6 +914,111 @@
     panelState.cleanedText = "";
     textContentEl.innerHTML = "";
     if (entitiesSummary) entitiesSummary.textContent = `Entidades: ${nodes.length}`;
+  }
+
+  async function handleWorkspaceNoProcessedArticles(workspaceId, modelKey, payload) {
+    if (!payload || payload.total_article_count <= 0 || payload.processed_article_count > 0) {
+      return true;
+    }
+
+    const currentModelSummary = currentWorkspaceData?.model_summary?.[modelKey] || {};
+    const queuedCount = Number(currentModelSummary.queued_or_processing || 0);
+    if (queuedCount > 0) {
+      renderEmptyWorkspaceState(
+        `Este workspace ya tiene ${queuedCount} articulo${queuedCount === 1 ? "" : "s"} en cola para procesar con el modelo seleccionado.`
+      );
+      return false;
+    }
+
+    const shouldProcess = window.confirm(
+      `Este workspace aun no tiene articulos procesados con el modelo "${modelKey}".\n\n¿Deseas procesarlo ahora?`
+    );
+    if (!shouldProcess) {
+      return false;
+    }
+
+    showProgress(`Procesando workspace ${modelKey}...`);
+    try {
+      const workspace = await processWorkspaceAndWait(workspaceId, modelKey);
+      if (workspace) {
+        currentWorkspaceData = workspace;
+      }
+    } catch (error) {
+      alert("Error procesando workspace: " + error.message);
+    } finally {
+      hideProgress();
+    }
+    return false;
+  }
+
+  async function processWorkspaceAndWait(workspaceId, modelKey) {
+    const result = await processWorkspace(workspaceId, modelKey);
+    const enqueued = Array.isArray(result.enqueued_article_ids) ? result.enqueued_article_ids.length : 0;
+    const skipped = Array.isArray(result.skipped) ? result.skipped.length : 0;
+    if (enqueued === 0 && skipped === 0) {
+      alert("No hubo articulos para procesar en este workspace.");
+      return currentWorkspaceData;
+    }
+
+    if (enqueued > 0) {
+      progressBar.style.width = "20%";
+      progressLabel.textContent = `Workspace encolado en ${modelKey}: ${enqueued} articulo${enqueued === 1 ? "" : "s"}.`;
+    }
+
+    const start = Date.now();
+    const timeoutMs = 1000 * 60 * 5;
+
+    while (Date.now() - start < timeoutMs) {
+      await new Promise(resolve => setTimeout(resolve, 2500));
+      const resultWorkspace = await getWorkspace(workspaceId);
+      const workspace = resultWorkspace.workspace || null;
+      if (!workspace) break;
+      currentWorkspaceData = workspace;
+
+      const summary = workspace.model_summary?.[modelKey] || {};
+      const processed = Number(summary.processed || 0);
+      const queuedOrProcessing = Number(summary.queued_or_processing || 0);
+      const missing = Number(summary.missing || 0);
+      const total = processed + queuedOrProcessing + missing + Number(summary.failed || 0);
+
+      if (total > 0) {
+        const progressValue = Math.min(95, Math.max(20, Math.round((processed / total) * 90)));
+        progressBar.style.width = `${progressValue}%`;
+        progressLabel.textContent = `Procesando workspace ${modelKey}: ${processed}/${total} procesados`;
+      }
+
+      if (queuedOrProcessing === 0 && missing === 0) {
+        progressBar.style.width = "100%";
+        progressLabel.textContent = `Workspace ${modelKey} procesado.`;
+        break;
+      }
+    }
+
+    await invalidateWorkspaceView(workspaceId, modelKey);
+    await refreshWorkspaceList(workspaceId);
+    await loadWorkspace(workspaceId);
+    return currentWorkspaceData;
+  }
+
+  async function maybePromptWorkspaceProcessing(workspace, modelKey) {
+    if (!workspace || !Array.isArray(workspace.articles)) return true;
+
+    const missing = workspace.articles.filter(article => article?.exists && article.models?.[modelKey] !== "processed");
+    if (!missing.length) return true;
+
+    const message = `Este workspace tiene ${missing.length} articulo${missing.length === 1 ? "" : "s"} no procesado${missing.length === 1 ? "" : "s"} con el modelo ${modelKey}.\n\n¿Deseas procesarlos ahora?`;
+    const shouldProcess = window.confirm(message);
+    if (!shouldProcess) return true;
+
+    showProgress(`Procesando workspace ${modelKey}...`);
+    try {
+      await processWorkspaceAndWait(workspace.id, modelKey);
+    } catch (error) {
+      alert("Error procesando workspace: " + error.message);
+    } finally {
+      hideProgress();
+    }
+    return false;
   }
 
   function updateChartModeButton() {
@@ -1355,6 +1462,8 @@
       if (workspaceSelect) workspaceSelect.value = workspaceId;
       updateWorkspaceButtonsState();
       if (currentScopeMode !== "workspaces") return;
+      const shouldContinue = await maybePromptWorkspaceProcessing(workspace, currentModelKey);
+      if (!shouldContinue) return;
       if (currentWorkspaceChartMode === "relations") {
         await loadWorkspaceRelations(workspaceId, currentModelKey);
       } else {
@@ -1446,11 +1555,18 @@
       } else {
         currentArticles.forEach(article => {
           workspaceCurrentArticlesEl.appendChild(createWorkspaceArticleRow(article, "Quitar", async () => {
-            await updateWorkspaceArticles(currentWorkspaceId, [article.id], "remove");
-            invalidateWorkspaceView(currentWorkspaceId);
-            await refreshWorkspaceList(currentWorkspaceId);
-            await loadWorkspace(currentWorkspaceId);
-            await renderWorkspaceManageModal();
+            showProgress("Actualizando workspace...");
+            try {
+              await updateWorkspaceArticles(currentWorkspaceId, [article.id], "remove");
+              invalidateWorkspaceView(currentWorkspaceId);
+              await refreshWorkspaceList(currentWorkspaceId);
+              await loadWorkspace(currentWorkspaceId);
+              await renderWorkspaceManageModal();
+            } catch (error) {
+              alert("Error quitando articulo del workspace: " + error.message);
+            } finally {
+              hideProgress();
+            }
           }));
         });
       }
@@ -1463,11 +1579,18 @@
       } else {
         availableArticles.forEach(article => {
           workspaceAvailableArticlesEl.appendChild(createWorkspaceArticleRow({ ...article, models: {} }, "Agregar", async () => {
-            await updateWorkspaceArticles(currentWorkspaceId, [article.id], "add");
-            invalidateWorkspaceView(currentWorkspaceId);
-            await refreshWorkspaceList(currentWorkspaceId);
-            await loadWorkspace(currentWorkspaceId);
-            await renderWorkspaceManageModal();
+            showProgress("Actualizando workspace...");
+            try {
+              await updateWorkspaceArticles(currentWorkspaceId, [article.id], "add");
+              invalidateWorkspaceView(currentWorkspaceId);
+              await refreshWorkspaceList(currentWorkspaceId);
+              await loadWorkspace(currentWorkspaceId);
+              await renderWorkspaceManageModal();
+            } catch (error) {
+              alert("Error agregando articulo al workspace: " + error.message);
+            } finally {
+              hideProgress();
+            }
           }));
         });
       }
@@ -1625,20 +1748,16 @@
       alert("Este workspace aun no tiene articulos. Agrega articulos primero.");
       return;
     }
+    showProgress("Procesando workspace...");
     try {
-      const result = await processWorkspace(currentWorkspaceId, currentModelKey);
-      const enqueued = Array.isArray(result.enqueued_article_ids) ? result.enqueued_article_ids.length : 0;
-      const skipped = Array.isArray(result.skipped) ? result.skipped.length : 0;
-      if (enqueued === 0 && skipped === 0) {
-        alert("No hubo articulos para procesar en este workspace.");
-        return;
+      const workspace = await processWorkspaceAndWait(currentWorkspaceId, currentModelKey);
+      if (workspace) {
+        currentWorkspaceData = workspace;
       }
-      invalidateWorkspaceView(currentWorkspaceId, currentModelKey);
-      await refreshWorkspaceList(currentWorkspaceId);
-      await loadWorkspace(currentWorkspaceId);
-      alert(`Workspace enviado a procesamiento en ${currentModelKey}: ${enqueued} encolados, ${skipped} omitidos.`);
     } catch (error) {
       alert("Error procesando workspace: " + error.message);
+    } finally {
+      hideProgress();
     }
   });
 
