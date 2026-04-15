@@ -13,6 +13,39 @@ const WORKSPACE_LEGEND_WIDTH = "52%";
 export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
   const nodes = Array.isArray(payload?.nodes) ? payload.nodes : [];
   const allEdges = Array.isArray(payload?.edges) ? payload.edges : [];
+  
+  // Validar si no hay nodos/entidades
+  if (nodes.length === 0) {
+    chart.setOption({
+      title: {
+        text: "No se detectaron entidades",
+        subtext: "El workspace no contiene entidades válidas para generar relaciones",
+        left: "center",
+        top: "center",
+        textStyle: {
+          fontSize: 16,
+          color: "#666",
+          fontWeight: "normal"
+        },
+        subtextStyle: {
+          fontSize: 12,
+          color: "#999"
+        }
+      },
+      series: [],
+      legend: { show: false },
+      xAxis: { show: false },
+      yAxis: { show: false },
+      toolbox: { show: false },
+      dataZoom: [],
+      graphic: []
+    }, true);
+    return;
+  }
+  
+  // Limpiar título previo cuando hay datos
+  chart.setOption({ title: { show: false } }, false);
+  
   const nodeMap = new Map(nodes.map(node => [String(node.key || ""), node]));
   const candidateEdges = selectStrongWorkspaceEdges(allEdges);
   const thresholds = computeEdgeThresholds(candidateEdges);

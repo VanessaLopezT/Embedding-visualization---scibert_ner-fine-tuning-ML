@@ -12,7 +12,38 @@ const ARTICLE_LEGEND_WIDTH_WRAP = "52%";
 
 export function initTSNEChart(chart, data, axisRange = null) {
   globalChart = chart;
+  
+  // Validar si no hay datos de entidades
+  if (!Array.isArray(data) || data.length === 0) {
+    chart.setOption({
+      title: {
+        text: "No se detectaron entidades",
+        subtext: "El modelo no encontró entidades válidas en este texto para el modelo seleccionado",
+        left: "center",
+        top: "center",
+        textStyle: {
+          fontSize: 16,
+          color: "#666",
+          fontWeight: "normal"
+        },
+        subtextStyle: {
+          fontSize: 12,
+          color: "#999"
+        }
+      },
+      series: [],
+      legend: { show: false },
+      xAxis: { show: false },
+      yAxis: { show: false }
+    }, true);
+    return;
+  }
+  
   const legendConfig = buildArticleLegendConfig(data.map(point => point?.label));
+  
+  // Limpiar título previo cuando hay datos
+  chart.setOption({ title: { show: false } }, false);
+  
   // Agrupar los puntos por su etiqueta para crear series separadas
   const groups = {};
   data.forEach(p => {

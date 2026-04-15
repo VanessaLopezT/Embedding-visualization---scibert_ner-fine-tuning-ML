@@ -20,17 +20,23 @@ const TECH_COLORS = {
 };
 
 // ── Modelo CMT (Canine Mammary Tumor / PubMedBERT) ─────────────────────
-// Claves normalizadas: sin espacios alrededor de "/", minúsculas, sin espacios dobles.
-// getColorForLabel normaliza el input de la misma manera antes de buscar.
+// Categorías de la documentación (8): Pathologic Features, Etiology, Diagnosis, Type_sample,
+// Statistical Descriptor, System_Organ, Treatment, Comparative Oncology
+// Categorías que el modelo está emitiendo actualmente: Prognosis, staging, organ systems
 const CMT_COLORS_NORMALIZED = {
-  "pathology/tumor type":              "#e63946",  // rojo
-  "species/subject":                   "#2a9d8f",  // verde azulado
-  "biomarkers and molecules":          "#e9c46a",  // ámbar
-  "histopathology and grade":          "#f4a261",  // naranja
-  "staging and prognosis":             "#a8dadc",  // celeste
-  "diagnostic imaging and techniques": "#457b9d",  // azul acero
-  "treatment":                         "#6a4c93",  // morado
-  "comparative oncology":              "#80b918",  // verde lima
+  // Categorías de la documentación (por si las arreglan)
+  "pathologic features":    "#e63946",  // rojo
+  "etiology":               "#2a9d8f",  // verde azulado
+  "diagnosis":              "#fd7e14",  // naranja
+  "type_sample":            "#ffc107",  // amarillo
+  "statistical descriptor": "#a855f7",  // morado claro
+  "system_organ":           "#06b6d4",  // cyan
+  "treatment":              "#d63384",  // rosa/magenta
+  "comparative oncology":   "#84cc16",  // verde lima
+  // Categorías que el modelo está emitiendo actualmente
+  "prognosis":              "#6f42c1",  // morado
+  "staging":                "#20c997",  // verde menta
+  "organ systems":          "#0d6efd",  // azul
 };
 
 /**
@@ -76,13 +82,17 @@ export function getColorForLabel(label) {
 // Export del mapa completo para la leyenda del gráfico
 export const CATEGORY_COLORS = {
   ...TECH_COLORS,
-  // CMT con claves en el formato original para la leyenda
-  "Pathology/Tumor Type":              "#e63946",
-  "Species/Subject":                   "#2a9d8f",
-  "Biomarkers and Molecules":          "#e9c46a",
-  "Histopathology and Grade":          "#f4a261",
-  "Staging and Prognosis":             "#a8dadc",
-  "Diagnostic Imaging and Techniques": "#457b9d",
-  "Treatment":                         "#6a4c93",
-  "Comparative Oncology":              "#80b918",
+  // CMT categorías de la documentación
+  "Pathologic Features":  "#e63946",
+  "Etiology":             "#2a9d8f",
+  "Diagnosis":            "#fd7e14",
+  "Type_sample":          "#ffc107",
+  "Statistical Descriptor": "#a855f7",
+  "System_Organ":         "#06b6d4",
+  "Treatment":            "#d63384",
+  "Comparative Oncology": "#84cc16",
+  // CMT categorías que el modelo está emitiendo actualmente
+  "Prognosis":            "#6f42c1",
+  "Staging":              "#20c997",
+  "Organ systems":        "#0d6efd",
 };

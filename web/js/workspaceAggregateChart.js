@@ -61,6 +61,37 @@ export function resetWorkspaceAggregateExpansion() {
 }
 
 function renderWorkspaceAggregate(chart, points) {
+  // Validar si no hay datos de entidades
+  if (!Array.isArray(points) || points.length === 0) {
+    chart.setOption({
+      title: {
+        text: "No se detectaron entidades",
+        subtext: "El workspace no contiene entidades válidas para el modelo seleccionado",
+        left: "center",
+        top: "center",
+        textStyle: {
+          fontSize: 16,
+          color: "#666",
+          fontWeight: "normal"
+        },
+        subtextStyle: {
+          fontSize: 12,
+          color: "#999"
+        }
+      },
+      series: [],
+      legend: { show: false },
+      xAxis: { show: false },
+      yAxis: { show: false },
+      toolbox: { show: false },
+      dataZoom: []
+    }, true);
+    return;
+  }
+  
+  // Limpiar título previo cuando hay datos
+  chart.setOption({ title: { show: false } }, false);
+  
   const series = buildSeries(points, expandedEntityKey);
 
   chart.setOption({

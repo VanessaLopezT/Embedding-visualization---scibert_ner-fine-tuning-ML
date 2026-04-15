@@ -28,6 +28,36 @@ const DEFAULT_OPTIONS = {
 
 export function initTSNERelationsChart(chart, data, axisRange = null, options = {}) {
   const safeData = Array.isArray(data) ? data : [];
+  
+  // Validar si no hay datos de entidades
+  if (safeData.length === 0) {
+    chart.setOption({
+      title: {
+        text: "No se detectaron entidades",
+        subtext: "El modelo no encontró entidades válidas para generar relaciones",
+        left: "center",
+        top: "center",
+        textStyle: {
+          fontSize: 16,
+          color: "#666",
+          fontWeight: "normal"
+        },
+        subtextStyle: {
+          fontSize: 12,
+          color: "#999"
+        }
+      },
+      series: [],
+      legend: { show: false },
+      xAxis: { show: false },
+      yAxis: { show: false },
+      toolbox: { show: false },
+      dataZoom: [],
+      graphic: []
+    }, true);
+    return;
+  }
+  
   const relationOptions = {
     ...DEFAULT_OPTIONS,
     ...sanitizeOptions(options),
@@ -35,6 +65,9 @@ export function initTSNERelationsChart(chart, data, axisRange = null, options = 
   if (typeof options.onRenderSummary === "function") {
     relationOptions.onRenderSummary = options.onRenderSummary;
   }
+
+  // Limpiar título previo cuando hay datos
+  chart.setOption({ title: { show: false } }, false);
 
   renderRelations(chart, safeData, axisRange, relationOptions);
 

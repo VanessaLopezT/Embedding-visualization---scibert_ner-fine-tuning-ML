@@ -1212,6 +1212,10 @@
 
   function renderChartByMode(data, axisRange = null) {
     if (!currentChart) return;
+    
+    // Limpiar gráfico completamente antes de cambiar de vista para evitar estado residual
+    currentChart.clear();
+    
     if (chartViewMode === "relations") {
       resetFrequencyExpansion();
       initTSNERelationsChart(currentChart, data, axisRange, {
@@ -1880,25 +1884,25 @@
       return;
     }
 
-    const axisRange = getCurrentAxisRange(currentChart);
     switchChartView("standard");
     updateChartModeButton();
     if (currentChart && Array.isArray(panelState.data)) {
       resetFrequencyExpansion();
       resetRelationsSelection();
-      renderChartByMode(panelState.data, axisRange);
+      // No pasar axisRange para permitir que ECharts calcule automáticamente los límites
+      renderChartByMode(panelState.data, null);
     }
   });
   chartFrequencyBtn?.addEventListener("click", () => {
     if (currentScopeMode === "workspaces") return;
 
-    const axisRange = getCurrentAxisRange(currentChart);
     switchChartView("frequency");
     updateChartModeButton();
     if (currentChart && Array.isArray(panelState.data)) {
       resetFrequencyExpansion();
       resetRelationsSelection();
-      renderChartByMode(panelState.data, axisRange);
+      // No pasar axisRange para permitir que ECharts calcule automáticamente los límites
+      renderChartByMode(panelState.data, null);
     }
   });
   updateChartModeButton();
@@ -1916,12 +1920,12 @@
       return;
     }
 
-    const axisRange = getCurrentAxisRange(currentChart);
     switchChartView("relations");
     if (chartViewMode !== "relations") resetRelationsSelection();
     updateChartModeButton();
     if (currentChart && Array.isArray(panelState.data)) {
-      renderChartByMode(panelState.data, axisRange);
+      // No pasar axisRange para permitir que ECharts calcule automáticamente los límites
+      renderChartByMode(panelState.data, null);
     }
   });
 
