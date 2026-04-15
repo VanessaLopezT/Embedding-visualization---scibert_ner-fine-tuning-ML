@@ -63,10 +63,10 @@ scibert_ner_project/
 
 ```python
 # Modelo ML / Technology (SciBERT)
-MODEL_TECH_CHECKPOINT = r"scibert_20260304_171958\best_model"
+MODEL_TECH_CHECKPOINT = r"TechBERT\best_model"
 
 # Modelo CMT (PubMedBERT)
-MODEL_CMT_CHECKPOINT = r"biobert_20260304_200826\best_model"
+MODEL_CMT_CHECKPOINT = r"PatVetBERT\best_model"
 ```
 
 Las rutas son relativas a `BASE_DIR` (raíz del proyecto). También puedes usar

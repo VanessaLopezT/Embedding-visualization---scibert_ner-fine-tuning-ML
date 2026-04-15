@@ -63,10 +63,10 @@ DATA_DIR = BASE_DIR / "data"
 # ─────────────────────────────────────────────────────────────
 
 # Modelo ML / Technology (SciBERT fine-tuned)
-MODEL_TECH_CHECKPOINT = r"scibert_20260304_171958\best_model"
+MODEL_TECH_CHECKPOINT = r"TechBERT\best_model"
 
 # Modelo Canine Mammary Tumor (PubMedBERT fine-tuned)
-MODEL_CMT_CHECKPOINT = r"biobert_20260304_200826\best_model"
+MODEL_CMT_CHECKPOINT = r"PatVetBERT\best_model"
 
 # Runtime de procesamiento
 # 1 = máxima estabilidad; subirlo solo si la máquina soporta concurrencia real.
