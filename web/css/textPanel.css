@@ -40,7 +40,7 @@ html, body {
 /* PANEL GRÁFICA - PRINCIPAL */
 #chart-panel {
   flex: 1;
-  min-width: 40%;
+  min-width: 44%;
   position: relative;
   background: #fafafa;
   box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.05);
@@ -69,17 +69,17 @@ html, body {
 
 /* PANEL TEXTO - OPCIONAL A LA DERECHA */
 #text-panel {
-  width: 35%;
+  width: 31%;
   min-width: 250px;
-  max-width: 60%;
-  padding: 24px;
+  max-width: 52%;
+  padding: 20px;
   overflow-y: auto;
   overflow-x: hidden;
   background: #ffffff;
   color: #333;
   border-left: 1px solid #e0e0e0;
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.5;
   box-shadow: inset 1px 0 0 rgba(0, 0, 0, 0.02);
 }
 
@@ -103,8 +103,8 @@ html, body {
 
 #text-panel h2 {
   margin-top: 0;
-  margin-bottom: 20px;
-  font-size: 14px;
+  margin-bottom: 16px;
+  font-size: 13px;
   color: #1a1a1a;
   border-bottom: 1px solid #e0e0e0;
   padding-bottom: 12px;
@@ -118,14 +118,14 @@ html, body {
 }
 
 #text-content p {
-  margin: 16px 0;
-  line-height: 1.8;
+  margin: 14px 0;
+  line-height: 1.65;
   color: #555;
 }
 
 #text-content .article-title {
   margin: 8px 0 18px 0;
-  font-size: 18px;
+  font-size: 17px;
   line-height: 1.35;
   color: #1f2937;
   font-weight: 700;

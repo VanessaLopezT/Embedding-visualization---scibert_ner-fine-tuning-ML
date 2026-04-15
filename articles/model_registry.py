@@ -7,15 +7,15 @@ from django.conf import settings
 
 MODEL_REGISTRY = {
     "tech": {
-        "label": "ML / Technology",
+        "label": "TechBERT",
         "checkpoint": settings.MODEL_TECH_CHECKPOINT,
-        "description": "SciBERT fine-tuned en literatura ML y NLP",
+        "description": "TechBERT — BERT/SciBERT fine-tuned en literatura ML y NLP",
         "color_scheme": "blue",
     },
     "cmt": {
-        "label": "Canine Mammary Tumor",
+        "label": "PatVetBERT",
         "checkpoint": settings.MODEL_CMT_CHECKPOINT,
-        "description": "PubMedBERT fine-tuned en oncologia veterinaria (CMT)",
+        "description": "PatVetBERT — BioBERT/biomedical-ner-all fine-tuned en oncologia veterinaria",
         "color_scheme": "green",
     },
 }

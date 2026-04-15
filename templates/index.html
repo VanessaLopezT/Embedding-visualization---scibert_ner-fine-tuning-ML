@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>SciBERT NER Visualization</title>
+  <title>NER Entity Embeddings Visualization</title>
 
   {% load static %}
   <link rel="stylesheet" href="{% static 'css/style.css' %}?v=20260315" />
@@ -284,12 +284,12 @@
     </div>
     <!-- Selector de modelo (tech / cmt) -->
     <select id="model-select" class="model-select" title="Seleccionar modelo NER">
-      <option value="tech">ML / Technology</option>
-      <option value="cmt">Canine Mammary Tumor</option>
+      <option value="tech">TechBERT</option>
+      <option value="cmt">PatVetBERT</option>
     </select>
   </div>
 
-  <h2>SciBERT &ndash; Entity Embeddings Visualization</h2>
+  <h2>NER &ndash; Entity Embeddings Visualization</h2>
 
   <div class="header-right">
     <button id="workspace-new-btn" class="workspace-action-btn" type="button" hidden>Nuevo</button>
@@ -327,7 +327,7 @@
     </div>
 
     <div id="frequency-scale-controls"
-      style="position:absolute; top:4px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
+      style="position:absolute; top:40px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
              border:1px solid #e0e0e0; border-radius:6px; padding:6px 8px;
              display:none; align-items:center; gap:6px; font-size:12px; color:#444;">
       <label for="frequency-scale-select" style="font-size:12px;">Escala:</label>
@@ -338,32 +338,38 @@
     </div>
 
     <div id="workspace-relations-filter-controls"
-      style="position:absolute; top:4px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
+      style="position:absolute; top:40px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
              border:1px solid #e0e0e0; border-radius:6px; padding:6px 8px;
              display:none; align-items:center; gap:6px; font-size:12px; color:#444;">
       <label for="workspace-relations-filter-select" style="font-size:12px;">Mostrar:</label>
       <select id="workspace-relations-filter-select" style="font-size:12px; border:1px solid #d0d0d0; border-radius:4px; padding:2px 4px;">
         <option value="all" selected>Todo</option>
         <option value="connected">Solo relacionadas</option>
+        <option value="low">Solo bajas</option>
+        <option value="medium">Solo medias</option>
+        <option value="high">Solo altas</option>
       </select>
     </div>
 
     <div id="article-relations-filter-controls"
-      style="position:absolute; top:4px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
+      style="position:absolute; top:40px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
              border:1px solid #e0e0e0; border-radius:6px; padding:6px 8px;
              display:none; align-items:center; gap:6px; font-size:12px; color:#444;">
       <label for="article-relations-filter-select" style="font-size:12px;">Mostrar:</label>
       <select id="article-relations-filter-select" style="font-size:12px; border:1px solid #d0d0d0; border-radius:4px; padding:2px 4px;">
         <option value="all" selected>Todo</option>
         <option value="connected">Solo relacionadas</option>
+        <option value="low">Solo bajas</option>
+        <option value="medium">Solo medias</option>
+        <option value="high">Solo altas</option>
       </select>
     </div>
 
     <div id="workspace-chart-summary"
-      style="position:absolute; top:62px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
-             border:1px solid #e0e0e0; border-radius:6px; padding:6px 10px;
-             display:none; font-size:12px; color:#444; max-width:420px; max-height:3.6em;
-             white-space:normal; word-break:break-word; overflow:hidden; text-overflow:ellipsis;">
+      style="position:absolute; top:4px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
+             border:1px solid #e0e0e0; border-radius:6px; padding:5px 10px;
+             display:none; font-size:12px; color:#444; max-width:420px;
+             white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
     </div>
 
     <div id="chart-help" class="chart-help" aria-label="Ayuda de la gr&aacute;fica">
@@ -564,6 +570,7 @@
   let currentWorkspaceVisibleEdgeCount = 0;
   let workspaceListState = [];
   let currentWorkspaceData = null;
+  let currentWorkspaceRelationsPayload = null;
 
   const panelState = {
     source: "example",
@@ -587,6 +594,7 @@
   const chartOriginalBtn       = document.getElementById("chart-original-btn");
   const chartFrequencyBtn      = document.getElementById("chart-frequency-btn");
   const chartRelationsBtn      = document.getElementById("chart-relations-btn");
+  const chartViewControls      = document.querySelector(".chart-view-controls");
   const chartHelp              = document.getElementById("chart-help");
   const chartHelpTooltip       = document.getElementById("chart-help-tooltip");
   const chartRelationsHelp     = document.getElementById("chart-relations-help");
@@ -699,6 +707,15 @@
     return max;
   }
 
+  function getUniqueEntityCount(data) {
+    if (!Array.isArray(data) || !data.length) return 0;
+    return new Set(
+      data
+        .map(item => String(item?.entity || "").trim().toLowerCase().replace(/\s+/g, " "))
+        .filter(Boolean)
+    ).size;
+  }
+
   // ── Renderizado ───────────────────────────────────────────────────────
   function updateDataSourceLabel(source, data, totalParagraphs = null, cleanedText = "") {
     const entities = Array.isArray(data) ? data.length : 0;
@@ -740,14 +757,34 @@
     if (textPanelEl) textPanelEl.style.display = isWorkspaceMode ? "none" : "";
     if (resizerEl) resizerEl.style.display = isWorkspaceMode ? "none" : "";
     if (chartPanelEl) chartPanelEl.style.flex = isWorkspaceMode ? "1 1 100%" : "";
-    if (workspaceChartSummary) workspaceChartSummary.style.display = isWorkspaceMode ? "block" : "none";
+    updateChartSummaryVisibility();
     if (currentChart) requestAnimationFrame(() => currentChart.resize());
+  }
+
+  function setChartChromeVisible(visible) {
+    if (chartViewControls) chartViewControls.hidden = !visible;
+    if (chartHelp) chartHelp.hidden = !visible;
+    if (chartRelationsHelp) chartRelationsHelp.hidden = !visible || !(currentScopeMode === "workspaces" ? currentWorkspaceChartMode === "relations" : chartViewMode === "relations");
+    if (frequencyScaleControls) frequencyScaleControls.style.display = visible && currentScopeMode === "articles" && chartViewMode === "frequency" ? "flex" : "none";
+    if (workspaceRelationsFilterControls) workspaceRelationsFilterControls.style.display = visible && currentScopeMode === "workspaces" && currentWorkspaceChartMode === "relations" ? "flex" : "none";
+    if (articleRelationsFilterControls) articleRelationsFilterControls.style.display = visible && currentScopeMode === "articles" && chartViewMode === "relations" ? "flex" : "none";
+    if (!visible) setWorkspaceChartSummary("");
+  }
+
+  function updateChartSummaryVisibility() {
+    if (!workspaceChartSummary) return;
+    const hasText = Boolean(String(workspaceChartSummary.textContent || "").trim());
+    const shouldShow = hasText && (
+      currentScopeMode === "workspaces" ||
+      (currentScopeMode === "articles" && (chartViewMode === "relations" || chartViewMode === "frequency"))
+    );
+    workspaceChartSummary.style.display = shouldShow ? "block" : "none";
   }
 
   function setWorkspaceChartSummary(text = "") {
     if (!workspaceChartSummary) return;
     workspaceChartSummary.textContent = text;
-    workspaceChartSummary.style.display = currentScopeMode === "workspaces" && text ? "block" : "none";
+    updateChartSummaryVisibility();
   }
 
   function applyArticleViewPayload(source, articleId, payload) {
@@ -758,7 +795,9 @@
 
     const chartDom = document.getElementById("tsne-chart");
     if (currentChart) currentChart.dispose();
+    chartDom.innerHTML = "";
     currentChart = echarts.init(chartDom);
+    setChartChromeVisible(true);
 
     resetFrequencyExpansion();
     resetRelationsSelection();
@@ -779,8 +818,16 @@
   function renderEmptyArticleState(message = "Selecciona un articulo para visualizar sus resultados.") {
     const chartDom = document.getElementById("tsne-chart");
     if (currentChart) currentChart.dispose();
-    currentChart = echarts.init(chartDom);
-    currentChart.clear();
+    currentChart = null;
+    setChartChromeVisible(false);
+    chartDom.innerHTML = `
+      <div style="height:100%; display:flex; align-items:center; justify-content:center; padding:24px; color:#666; text-align:center;">
+        <div>
+          <div style="font-size:16px; font-weight:600; margin-bottom:10px;">Sin articulo seleccionado</div>
+          <div style="font-size:13px; line-height:1.7;">${message}</div>
+        </div>
+      </div>
+    `;
 
     panelState.source = "article";
     panelState.articleId = null;
@@ -804,8 +851,8 @@
   function renderEmptyWorkspaceState(message = "Selecciona un workspace para explorar sus articulos.") {
     const chartDom = document.getElementById("tsne-chart");
     if (currentChart) currentChart.dispose();
-    currentChart = echarts.init(chartDom);
-    currentChart.clear();
+    currentChart = null;
+    setChartChromeVisible(false);
 
     panelState.source = "article";
     panelState.articleId = null;
@@ -838,6 +885,7 @@
   }
 
   async function loadWorkspaceAggregate(workspaceId, modelKey = currentModelKey, options = {}) {
+    currentWorkspaceRelationsPayload = null;
     const forceRefresh = Boolean(options.forceRefresh);
     let payload = forceRefresh ? null : getCachedWorkspaceAggregate(workspaceId, modelKey);
     if (!payload) {
@@ -862,7 +910,9 @@
 
     const chartDom = document.getElementById("tsne-chart");
     if (currentChart) currentChart.dispose();
+    chartDom.innerHTML = "";
     currentChart = echarts.init(chartDom);
+    setChartChromeVisible(true);
     resetFrequencyExpansion();
     resetWorkspaceAggregateExpansion();
     resetRelationsSelection();
@@ -897,6 +947,7 @@
 
     const nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
     if (!nodes.length) {
+      currentWorkspaceRelationsPayload = null;
       if (!(await handleWorkspaceNoProcessedArticles(workspaceId, modelKey, payload))) return;
       renderEmptyWorkspaceState(
         payload.total_article_count > 0
@@ -908,7 +959,10 @@
 
     const chartDom = document.getElementById("tsne-chart");
     if (currentChart) currentChart.dispose();
+    chartDom.innerHTML = "";
     currentChart = echarts.init(chartDom);
+    setChartChromeVisible(true);
+    currentWorkspaceRelationsPayload = payload;
     resetFrequencyExpansion();
     resetRelationsSelection();
     initWorkspaceRelationsChart(currentChart, payload, {
@@ -950,6 +1004,7 @@
       `Este workspace aun no tiene articulos procesados con el modelo "${modelKey}".\n\n¿Deseas procesarlo ahora?`
     );
     if (!shouldProcess) {
+      renderEmptyWorkspaceState("Este workspace no tiene artículos procesados con el modelo seleccionado.");
       return false;
     }
 
@@ -1024,7 +1079,10 @@
 
     const message = `Este workspace tiene ${missing.length} articulo${missing.length === 1 ? "" : "s"} no procesado${missing.length === 1 ? "" : "s"} con el modelo ${modelKey}.\n\n¿Deseas procesarlos ahora?`;
     const shouldProcess = window.confirm(message);
-    if (!shouldProcess) return true;
+    if (!shouldProcess) {
+      renderEmptyWorkspaceState("Procesa los artículos del workspace con el modelo seleccionado para ver la visualización.");
+      return false;
+    }
 
     showProgress(`Procesando workspace ${modelKey}...`);
     try {
@@ -1163,11 +1221,19 @@
         scoreThreshold: 0.16,
         maxEdges: 120,
         filterMode: articleRelationsFilterMode,
+        onRenderSummary: ({ visibleNodeCount, visibleEdgeCount }) => {
+          setWorkspaceChartSummary(
+            `Entidades: ${Number(visibleNodeCount || 0)} · Ocurrencias: ${Number(Array.isArray(data) ? data.length : 0)} · Relaciones: ${Number(visibleEdgeCount || 0)}`
+          );
+        },
       });
       return;
     }
     if (chartViewMode === "frequency") {
       resetRelationsSelection();
+      setWorkspaceChartSummary(
+        `Entidades: ${Number(getUniqueEntityCount(data) || 0)} · Ocurrencias: ${Number(Array.isArray(data) ? data.length : 0)}`
+      );
       if (frequencyScaleMode === "global") {
         globalFrequencyReferenceMax = Math.max(globalFrequencyReferenceMax, getMaxEntityFrequency(data));
       }
@@ -1178,6 +1244,7 @@
       return;
     }
     resetRelationsSelection();
+    setWorkspaceChartSummary("");
     initTSNEChart(currentChart, data, axisRange);
   }
 
@@ -1630,7 +1697,7 @@
     updateChartModeButton();
     if (currentScopeMode === "workspaces") {
       if (currentWorkspaceId) {
-        await loadWorkspace(currentWorkspaceId);
+        await loadWorkspace(currentWorkspaceId, { forceRefresh: true });
       } else {
         renderEmptyWorkspaceState();
       }
@@ -1675,6 +1742,9 @@
   modeWorkspacesBtn?.addEventListener("click", async () => {
     resetWorkspaceRelationsSelection();
     currentScopeMode = "workspaces";
+    if (currentWorkspaceChartMode !== "relations") {
+      currentWorkspaceChartMode = "aggregate";
+    }
     updateScopeControls();
     updateChartModeButton();
     if (!workspaceListState.length) {
@@ -1865,8 +1935,18 @@
   workspaceRelationsFilterSelect?.addEventListener("change", () => {
     workspaceRelationsFilterMode = workspaceRelationsFilterSelect.value || "all";
     if (currentScopeMode !== "workspaces" || currentWorkspaceChartMode !== "relations") return;
-    if (currentWorkspaceId) {
-      loadWorkspace(currentWorkspaceId);
+    if (currentChart && currentWorkspaceRelationsPayload) {
+      resetWorkspaceRelationsSelection();
+      initWorkspaceRelationsChart(currentChart, currentWorkspaceRelationsPayload, {
+        filterMode: workspaceRelationsFilterMode,
+        onRenderSummary: ({ visibleEdgeCount }) => {
+          const nodes = Array.isArray(currentWorkspaceRelationsPayload?.nodes) ? currentWorkspaceRelationsPayload.nodes : [];
+          currentWorkspaceVisibleEdgeCount = Number(visibleEdgeCount || 0);
+          setWorkspaceChartSummary(
+            `Entidades: ${Number(currentWorkspaceRelationsPayload?.unique_entity_count || nodes.length || 0)} · Ocurrencias: ${Number(currentWorkspaceRelationsPayload?.total_entity_occurrences || 0)} · Relaciones: ${Number(visibleEdgeCount || 0)}`
+          );
+        },
+      });
     }
   });
 

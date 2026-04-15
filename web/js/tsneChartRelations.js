@@ -14,10 +14,12 @@
 import { getColorForLabel } from "./categoryColors.js";
 
 let activeRelationKey = null;
+const ARTICLE_LEGEND_WIDTH_TECH = "auto";
+const ARTICLE_LEGEND_WIDTH_CMT = "56%";
+const ARTICLE_LEGEND_WIDTH_WRAP = "52%";
 
 const DEFAULT_OPTIONS = {
   minEntityFrequency: 1,
-  topEntities: 40,
   minSentenceCooccurrence: 2,
   scoreThreshold: 0.24,
   maxEdges: 90,
@@ -30,6 +32,9 @@ export function initTSNERelationsChart(chart, data, axisRange = null, options = 
     ...DEFAULT_OPTIONS,
     ...sanitizeOptions(options),
   };
+  if (typeof options.onRenderSummary === "function") {
+    relationOptions.onRenderSummary = options.onRenderSummary;
+  }
 
   renderRelations(chart, safeData, axisRange, relationOptions);
 
@@ -69,7 +74,6 @@ export function resetRelationsSelection() {
 function sanitizeOptions(options) {
   return {
     minEntityFrequency: clampInt(options.minEntityFrequency, 1, 9999, DEFAULT_OPTIONS.minEntityFrequency),
-    topEntities: clampInt(options.topEntities, 5, 300, DEFAULT_OPTIONS.topEntities),
     minSentenceCooccurrence: Math.max(
       DEFAULT_OPTIONS.minSentenceCooccurrence,
       clampInt(options.minSentenceCooccurrence, 1, 99, DEFAULT_OPTIONS.minSentenceCooccurrence),
@@ -79,17 +83,29 @@ function sanitizeOptions(options) {
       clampNumber(options.scoreThreshold, 0, 1, DEFAULT_OPTIONS.scoreThreshold),
     ),
     maxEdges: clampInt(options.maxEdges, 10, 5000, DEFAULT_OPTIONS.maxEdges),
-    filterMode: options.filterMode === "connected" ? "connected" : "all",
+    filterMode: ["all", "connected", "low", "medium", "high"].includes(options.filterMode) ? options.filterMode : "all",
   };
 }
 
 function renderRelations(chart, data, axisRange, options) {
   const model = buildRelationModel(data, options);
-  const visibleModel = applyVisibilityFilter(model, options.filterMode);
-  const filtered = applySelection(visibleModel, activeRelationKey, options);
+  const allQuartiles = computeScoreQuartiles(model.edges);
+  const tieredModel = {
+    ...model,
+    edges: model.edges.map((edge) => ({
+      ...edge,
+      tier: classifyEdge(edge.score, allQuartiles),
+    })),
+  };
+  const visibleModel = applyVisibilityFilter(tieredModel, options.filterMode);
+  const filtered = applySelection(visibleModel, activeRelationKey, options.filterMode);
+  
+  // Usar cuartiles originales para mantener colores consistentes por tier (low=azul, medium=morado, high=magenta)
   const series = buildNodeSeries(filtered.nodes);
-  const edgeSeries = buildEdgeSeries(filtered.edges);
-  const relationLegend = buildRelationLegend();
+  const edgeSeries = buildEdgeSeries(filtered.edges, allQuartiles);
+  const relationLegend = filtered.edges.length ? buildRelationLegend() : buildNoRelationsGraphic(options.filterMode);
+  const legendConfig = buildArticleLegendConfig(filtered.nodes.map(node => node?.label));
+  const hasRenderableRelations = filtered.edges.length > 0;
 
   const option = {
     animation: true,
@@ -131,28 +147,29 @@ function renderRelations(chart, data, axisRange, options) {
       top: 20
     },
     legend: {
-      top: 22,
+      top: 42,
       left: "center",
+      width: legendConfig.width,
       orient: "horizontal",
       textStyle: {
-        fontSize: 13,
+        fontSize: 12,
         color: "#333",
         fontWeight: 500
       },
-      backgroundColor: "rgba(255, 255, 255, 0.8)",
-      borderColor: "#e0e0e0",
-      borderWidth: 1,
-      borderRadius: 4,
-      padding: 8,
-      itemGap: 25,
-      itemWidth: 12,
-      itemHeight: 12
+      backgroundColor: legendConfig.backgroundColor,
+      borderColor: legendConfig.borderColor,
+      borderWidth: legendConfig.borderWidth,
+      borderRadius: legendConfig.borderRadius,
+      padding: legendConfig.padding,
+      itemGap: 12,
+      itemWidth: 11,
+      itemHeight: 11
     },
     grid: {
       left: 60,
       right: 30,
       bottom: 40,
-      top: 82,
+      top: 122,
       containLabel: true
     },
     backgroundColor: "#fafafa",
@@ -180,7 +197,7 @@ function renderRelations(chart, data, axisRange, options) {
         zoomLock: false
       }
     ],
-    xAxis: {
+    xAxis: hasRenderableRelations ? {
       type: "value",
       ...(axisRange ? { min: axisRange.xMin, max: axisRange.xMax } : {}),
       name: "Dimension 1",
@@ -192,8 +209,11 @@ function renderRelations(chart, data, axisRange, options) {
         show: true,
         lineStyle: { color: "#f0f0f0" }
       }
+    } : {
+      type: "value",
+      show: false,
     },
-    yAxis: {
+    yAxis: hasRenderableRelations ? {
       type: "value",
       ...(axisRange ? { min: axisRange.yMin, max: axisRange.yMax } : {}),
       name: "Dimension 2",
@@ -205,12 +225,24 @@ function renderRelations(chart, data, axisRange, options) {
         show: true,
         lineStyle: { color: "#f0f0f0" }
       }
+    } : {
+      type: "value",
+      show: false,
     },
     graphic: relationLegend,
-    series: [edgeSeries, ...series]
+    series: hasRenderableRelations ? [edgeSeries, ...series] : []
   };
 
   chart.setOption(option, true);
+
+  if (typeof options.onRenderSummary === "function") {
+    queueMicrotask(() => {
+      options.onRenderSummary({
+        visibleNodeCount: filtered.nodes.length,
+        visibleEdgeCount: filtered.edges.length,
+      });
+    });
+  }
 
   chart.off("legendselectchanged");
   chart.on("legendselectchanged", (params) => {
@@ -222,10 +254,34 @@ function renderRelations(chart, data, axisRange, options) {
     );
     chart.setOption({
       series: [
-        { id: edgeSeries.id, data: buildEdgeSeries(filtered.edges, visibleNodeKeys).data }
+        { id: edgeSeries.id, data: buildEdgeSeries(filtered.edges, null, visibleNodeKeys).data }
       ]
     });
   });
+}
+
+function buildArticleLegendConfig(labels = []) {
+  const uniqueLabels = Array.from(new Set(labels.map(label => String(label || "").trim()).filter(Boolean)));
+  const usesCmtLabels = labels.some(label => /\/| and |oncology|treatment/i.test(String(label || "")));
+  if (usesCmtLabels) {
+    return {
+      width: uniqueLabels.length >= 7 ? ARTICLE_LEGEND_WIDTH_CMT : ARTICLE_LEGEND_WIDTH_TECH,
+      backgroundColor: "rgba(255, 255, 255, 0.8)",
+      borderColor: "#e0e0e0",
+      borderWidth: 1,
+      borderRadius: 4,
+      padding: 7,
+    };
+  }
+
+  return {
+    width: uniqueLabels.length >= 7 ? ARTICLE_LEGEND_WIDTH_WRAP : ARTICLE_LEGEND_WIDTH_TECH,
+    backgroundColor: "rgba(255, 255, 255, 0.8)",
+    borderColor: "#e0e0e0",
+    borderWidth: 1,
+    borderRadius: 4,
+    padding: 7,
+  };
 }
 
 function buildRelationModel(data, options) {
@@ -303,8 +359,7 @@ function buildRelationModel(data, options) {
     .sort((a, b) => {
       if (b.frequency !== a.frequency) return b.frequency - a.frequency;
       return a.entity.localeCompare(b.entity);
-    })
-    .slice(0, options.topEntities);
+    });
 
   const totals = {
     totalSentenceContexts: Math.max(1, sentenceEntityMap.size),
@@ -406,9 +461,17 @@ function buildEdge(sourceNode, targetNode, options, totals = {}) {
   };
 }
 
-function applySelection(model, selectedKey /*, options */) {
+function applySelection(model, selectedKey, filterMode) {
   if (!selectedKey) return model;
-  const edgeSet = model.edges.filter((edge) => edge.source === selectedKey || edge.target === selectedKey);
+  
+  // Filtrar aristas conectadas al nodo seleccionado
+  let edgeSet = model.edges.filter((edge) => edge.source === selectedKey || edge.target === selectedKey);
+  
+  // Si hay un filtro de tier activo (low, medium, high), aplicarlo también
+  if (filterMode === "low" || filterMode === "medium" || filterMode === "high") {
+    edgeSet = edgeSet.filter((edge) => edge.tier === filterMode);
+  }
+  
   const connectedKeys = new Set([selectedKey]);
   edgeSet.forEach((edge) => {
     connectedKeys.add(edge.source);
@@ -427,30 +490,35 @@ function applySelection(model, selectedKey /*, options */) {
 }
 
 function applyVisibilityFilter(model, filterMode) {
-  if (filterMode !== "connected") {
+  if (filterMode !== "connected" && filterMode !== "low" && filterMode !== "medium" && filterMode !== "high") {
     return model;
   }
 
+  const scopedEdges = filterMode === "connected"
+    ? model.edges
+    : model.edges.filter((edge) => edge.tier === filterMode);
+
   const connectedKeys = new Set();
-  model.edges.forEach((edge) => {
+  scopedEdges.forEach((edge) => {
     connectedKeys.add(edge.source);
     connectedKeys.add(edge.target);
   });
 
   return {
     nodes: model.nodes.filter((node) => connectedKeys.has(node.key)),
-    edges: model.edges,
+    edges: scopedEdges,
   };
 }
 
-function buildEdgeSeries(edges, visibleNodeKeys = null) {
+function buildEdgeSeries(edges, quartiles = null, visibleNodeKeys = null) {
   const filteredEdges = Array.isArray(edges)
     ? edges.filter((edge) => {
         if (!visibleNodeKeys) return true;
         return visibleNodeKeys.has(edge.source) && visibleNodeKeys.has(edge.target);
       })
     : [];
-  const quartiles = computeScoreQuartiles(filteredEdges);
+  // Usar cuartiles proporcionados o calcular si no se pasaron
+  const edgeQuartiles = quartiles || computeScoreQuartiles(filteredEdges);
   return {
     id: "relations-edges",
     type: "lines",
@@ -463,8 +531,8 @@ function buildEdgeSeries(edges, visibleNodeKeys = null) {
     showLegendSymbol: false,
     legendHoverLink: false,
     lineStyle: {
-      width: 1.8,
-      opacity: 0.18,
+      width: 2.4,
+      opacity: 1,
       color: "#7f8c8d",
       curveness: 0.08,
     },
@@ -472,9 +540,9 @@ function buildEdgeSeries(edges, visibleNodeKeys = null) {
       ...edge,
       coords: edge.coords,
       lineStyle: {
-        width: 1.8,
-        opacity: edge.muted ? Math.max(0.04, edge.opacity * 0.35) : edge.opacity,
-        color: edge.muted ? "#d6dde3" : edgeColorFromQuartiles(edge.score, quartiles),
+        width: 2.4,
+        opacity: edge.muted ? 0.1 : 1,
+        color: edge.muted ? "#d6dde3" : edgeColorFromQuartiles(edge.score, edgeQuartiles),
         curveness: 0.08,
       }
     })),
@@ -555,11 +623,11 @@ function buildNodeSeries(nodes) {
 }
 
 function nodeSizeFromFrequency(frequency, referenceMax) {
-  if (frequency <= 1) return 9;
-  if (referenceMax <= 1) return 9;
+  if (frequency <= 1) return 16;
+  if (referenceMax <= 1) return 16;
 
   const minRepeated = 2;
-  const minSize = 16;
+  const minSize = 20;
   const maxSize = 60;
   const alpha = 0.65;
 
@@ -573,11 +641,11 @@ function nodeSizeFromFrequency(frequency, referenceMax) {
 }
 
 function edgeWidthFromScore(score) {
-  return 1 + (4 * Math.max(0, Math.min(1, score)));
+  return 2.4;
 }
 
 function edgeOpacityFromScore(score) {
-  return 0.16 + (0.50 * Math.max(0, Math.min(1, score)));
+  return 1;
 }
 
 function computeScoreQuartiles(edges) {
@@ -609,47 +677,92 @@ function percentile(sortedValues, p) {
 
 function edgeColorFromQuartiles(score, quartiles) {
   const s = Number(score || 0);
-  if (s <= quartiles.q1) return "#7ec8ff";
-  if (s <= quartiles.q2) return "#6c63c9";
-  return "#8f1d5a";
+  if (s <= quartiles.q1) return "#7dd3fc";
+  if (s <= quartiles.q2) return "#6366f1";
+  return "#c026d3";
+}
+
+function classifyEdge(score, quartiles) {
+  const s = Number(score || 0);
+  if (s <= quartiles.q1) return "low";
+  if (s <= quartiles.q2) return "medium";
+  return "high";
 }
 
 function buildRelationLegend() {
   const items = [
-    { color: "#7ec8ff", label: "Relacion baja" },
-    { color: "#6c63c9", label: "Relacion media" },
-    { color: "#8f1d5a", label: "Relacion alta" },
+    { color: "#7dd3fc", label: "Baja" },
+    { color: "#6366f1", label: "Media" },
+    { color: "#c026d3", label: "Alta" },
   ];
+
+  const itemWidth = 68;
+  return [{
+    type: "group",
+    right: 14,
+    bottom: 12,
+    silent: true,
+    children: [
+      {
+        type: "text",
+        style: {
+          x: 0, y: 1,
+          text: "Relación:",
+          fill: "#6b7280",
+          font: "11px sans-serif",
+        },
+      },
+      ...items.flatMap((item, index) => {
+        const x = 58 + index * itemWidth;
+        return [
+          {
+            type: "line",
+            shape: { x1: x, y1: 8, x2: x + 14, y2: 8 },
+            style: { stroke: item.color, lineWidth: 3, lineCap: "round" },
+          },
+          {
+            type: "text",
+            style: {
+              x: x + 20, y: 1,
+              text: item.label,
+              fill: "#4b5563",
+              font: "11px sans-serif",
+            },
+          },
+        ];
+      }),
+    ],
+  }];
+}
+
+function buildNoRelationsGraphic(filterMode) {
+  const message = filterMode === "connected"
+    ? "No hay relaciones para mostrar con ese filtro."
+    : filterMode === "low"
+      ? "No hay relaciones bajas."
+      : filterMode === "medium"
+        ? "No hay relaciones medias."
+        : filterMode === "high"
+          ? "No hay relaciones altas."
+          : "No hay relaciones para mostrar.";
 
   return [{
     type: "group",
-    right: 34,
-    bottom: 2,
+    left: "center",
+    top: "middle",
     silent: true,
-    children: items.flatMap((item, index) => {
-      const y = index * 18;
-      return [
-        {
-          type: "circle",
-          shape: { cx: 0, cy: y +10, r: 5 },
-          style: {
-            fill: item.color,
-            stroke: "#ffffff",
-            lineWidth: 1,
-          }
+    children: [
+      {
+        type: "text",
+        style: {
+          x: -150,
+          y: 16,
+          text: message,
+          fill: "#6b7280",
+          font: "12px sans-serif",
         },
-        {
-          type: "text",
-          style: {
-            x: 12,
-            y: y + 4,
-            text: item.label,
-            fill: "#555",
-            font: "12px sans-serif",
-          }
-        }
-      ];
-    })
+      },
+    ],
   }];
 }
 

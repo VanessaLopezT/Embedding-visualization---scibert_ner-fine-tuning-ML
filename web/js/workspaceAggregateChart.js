@@ -1,12 +1,16 @@
 import { getColorForLabel } from "./categoryColors.js";
 
 let expandedEntityKey = null;
-let workspaceAxisRange = null;
+
+const WORKSPACE_LEGEND_WIDTH = "52%";
 
 export function initWorkspaceAggregateChart(chart, payload = {}) {
   const points = Array.isArray(payload?.points) ? payload.points : [];
 
   renderWorkspaceAggregate(chart, points);
+  requestAnimationFrame(() => {
+    chart.resize();
+  });
   clearChartHoverState(chart);
 
   chart.off("click");
@@ -54,17 +58,16 @@ export function initWorkspaceAggregateChart(chart, payload = {}) {
 
 export function resetWorkspaceAggregateExpansion() {
   expandedEntityKey = null;
-  workspaceAxisRange = null;
 }
 
 function renderWorkspaceAggregate(chart, points) {
-  const axisRange = workspaceAxisRange || getCurrentAxisRange(chart);
   const series = buildSeries(points, expandedEntityKey);
 
   chart.setOption({
     animation: true,
-    animationDuration: 0,
-    animationDurationUpdate: 0,
+    animationDuration: 350,
+    animationDurationUpdate: 350,
+    animationEasing: "cubicOut",
     tooltip: {
       show: true,
       formatter(params) {
@@ -75,13 +78,13 @@ function renderWorkspaceAggregate(chart, points) {
             `<b>${escapeHtml(data.entity || "")}</b>`,
             `Articulo: ${escapeHtml(data.articleName || "")}`,
             `Frecuencia en articulo: ${Number(data.frequency || 0)}`,
-            `Tipo dominante: ${escapeHtml(data.label || "UNKNOWN")}`,
+            `Tipo: ${escapeHtml(data.label || "UNKNOWN")}`,
           ].join("<br/>");
         }
 
         return [
           `<b>${escapeHtml(data.entity || "")}</b>`,
-          `Tipo dominante: ${escapeHtml(data.label || "UNKNOWN")}`,
+          `Tipo: ${escapeHtml(data.label || "UNKNOWN")}`,
           `Frecuencia total: ${Number(data.frequency || 0)}`,
           `Articulos del workspace: ${Number(data.articleCount || 0)}`,
         ].join("<br/>");
@@ -101,17 +104,11 @@ function renderWorkspaceAggregate(chart, points) {
       top: 20,
     },
     legend: {
-      type: "scroll",
-      top: 18,
+      type: "plain",
+      top: 4,
       left: "center",
+      width: WORKSPACE_LEGEND_WIDTH,
       orient: "horizontal",
-      pageButtonPosition: "end",
-      pageIconSize: 12,
-      pageTextStyle: {
-        fontSize: 11,
-        color: "#666",
-      },
-      pageIconColor: "#666",
       textStyle: {
         fontSize: 12,
         color: "#333",
@@ -122,16 +119,15 @@ function renderWorkspaceAggregate(chart, points) {
       borderWidth: 1,
       borderRadius: 4,
       padding: 8,
-      itemGap: 14,
+      itemGap: 12,
       itemWidth: 12,
       itemHeight: 12,
-      width: "96%",
     },
     grid: {
       left: 60,
       right: 30,
       bottom: 40,
-      top: 82,
+      top: 78,
       containLabel: true,
     },
     backgroundColor: "#fafafa",
@@ -159,7 +155,6 @@ function renderWorkspaceAggregate(chart, points) {
     ],
     xAxis: {
       type: "value",
-      ...(axisRange ? { min: axisRange.xMin, max: axisRange.xMax } : {}),
       name: "Dimension 1",
       nameLocation: "middle",
       nameGap: 30,
@@ -174,7 +169,6 @@ function renderWorkspaceAggregate(chart, points) {
     },
     yAxis: {
       type: "value",
-      ...(axisRange ? { min: axisRange.yMin, max: axisRange.yMax } : {}),
       name: "Dimension 2",
       nameLocation: "middle",
       nameGap: 40,
@@ -288,10 +282,10 @@ function aggregateSizeFromPoint(point) {
   const frequency = Math.max(1, Number(point.frequency || 1));
   const articleCount = Math.max(1, Number(point.article_count || 1));
   const size =
-    14 +
-    Math.log2(frequency + 1) * 5 +
-    Math.log2(articleCount + 1) * 4;
-  return Math.max(14, Math.min(44, size));
+    13 +
+    Math.log2(frequency + 1) * 4.6 +
+    Math.log2(articleCount + 1) * 3.8;
+  return Math.max(13, Math.min(42, size));
 }
 
 function contributionSizeFromFrequency(frequency) {
@@ -303,25 +297,6 @@ function trimLabel(value, maxLength) {
   const text = String(value || "");
   if (text.length <= maxLength) return text;
   return `${text.slice(0, Math.max(0, maxLength - 1))}…`;
-}
-
-function getCurrentAxisRange(chart) {
-  if (!chart || typeof chart.getModel !== "function") return null;
-  try {
-    const model = chart.getModel();
-    const xAxis = model.getComponent("xAxis", 0)?.axis;
-    const yAxis = model.getComponent("yAxis", 0)?.axis;
-    if (!xAxis || !yAxis) return null;
-
-    const [xMin, xMax] = xAxis.scale.getExtent();
-    const [yMin, yMax] = yAxis.scale.getExtent();
-
-    if (![xMin, xMax, yMin, yMax].every(Number.isFinite)) return null;
-
-    return { xMin, xMax, yMin, yMax };
-  } catch (_) {
-    return null;
-  }
 }
 
 function escapeHtml(value) {

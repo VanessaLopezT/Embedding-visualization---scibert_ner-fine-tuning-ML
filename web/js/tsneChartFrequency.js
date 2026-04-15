@@ -8,6 +8,9 @@ import { getColorForLabel } from "./categoryColors.js";
 
 let expandedEntityKey = null;
 let frequencyAxisRange = null;
+const ARTICLE_LEGEND_WIDTH_TECH = "auto";
+const ARTICLE_LEGEND_WIDTH_CMT = "56%";
+const ARTICLE_LEGEND_WIDTH_WRAP = "52%";
 let frequencyScaleOptions = {
   scaleMode: "article",
   globalReferenceMax: 30
@@ -135,6 +138,7 @@ function getEventOffset(evt) {
 function renderFrequency(chart, data) {
   const series = buildFrequencySeries(data, expandedEntityKey, frequencyScaleOptions);
   const axisRange = frequencyAxisRange || getCurrentAxisRange(chart);
+  const legendConfig = buildArticleLegendConfig(data.map(point => point?.label));
 
   const option = {
     animation: true,
@@ -161,28 +165,29 @@ function renderFrequency(chart, data) {
       top: 20
     },
     legend: {
-      top: 22,
+      top: 42,
       left: "center",
+      width: legendConfig.width,
       orient: "horizontal",
       textStyle: {
-        fontSize: 13,
+        fontSize: 12,
         color: "#333",
         fontWeight: 500
       },
-      backgroundColor: "rgba(255, 255, 255, 0.8)",
-      borderColor: "#e0e0e0",
-      borderWidth: 1,
-      borderRadius: 4,
-      padding: 8,
-      itemGap: 25,
-      itemWidth: 12,
-      itemHeight: 12
+      backgroundColor: legendConfig.backgroundColor,
+      borderColor: legendConfig.borderColor,
+      borderWidth: legendConfig.borderWidth,
+      borderRadius: legendConfig.borderRadius,
+      padding: legendConfig.padding,
+      itemGap: 12,
+      itemWidth: 11,
+      itemHeight: 11
     },
     grid: {
       left: 60,
       right: 30,
       bottom: 40,
-      top: 82,
+      top: 122,
       containLabel: true
     },
     backgroundColor: "#fafafa",
@@ -240,6 +245,30 @@ function renderFrequency(chart, data) {
   };
 
   chart.setOption(option, true);
+}
+
+function buildArticleLegendConfig(labels = []) {
+  const uniqueLabels = Array.from(new Set(labels.map(label => String(label || "").trim()).filter(Boolean)));
+  const usesCmtLabels = labels.some(label => /\/| and |oncology|treatment/i.test(String(label || "")));
+  if (usesCmtLabels) {
+    return {
+      width: uniqueLabels.length >= 7 ? ARTICLE_LEGEND_WIDTH_CMT : ARTICLE_LEGEND_WIDTH_TECH,
+      backgroundColor: "rgba(255, 255, 255, 0.8)",
+      borderColor: "#e0e0e0",
+      borderWidth: 1,
+      borderRadius: 4,
+      padding: 7,
+    };
+  }
+
+  return {
+    width: uniqueLabels.length >= 7 ? ARTICLE_LEGEND_WIDTH_WRAP : ARTICLE_LEGEND_WIDTH_TECH,
+    backgroundColor: "rgba(255, 255, 255, 0.8)",
+    borderColor: "#e0e0e0",
+    borderWidth: 1,
+    borderRadius: 4,
+    padding: 7,
+  };
 }
 
 function getCurrentAxisRange(chart) {
@@ -313,11 +342,11 @@ function buildFrequencySeries(data, expandedKey, scaleOptions = {}) {
     // - 1 se mantiene como referencia visual minima
     // - crecimiento logaritmico para evitar que outliers aplasten valores bajos
     // - exponente < 1 para separar mejor frecuencias bajas (2, 3, 4...)
-    if (frequency <= 1) return 9;
-    if (referenceMax <= 1) return 9;
+    if (frequency <= 1) return 16;
+    if (referenceMax <= 1) return 16;
 
     const minRepeated = 2;
-    const minSize = 16;
+    const minSize = 20;
     const maxSize = 60;
     const alpha = 0.65;
 

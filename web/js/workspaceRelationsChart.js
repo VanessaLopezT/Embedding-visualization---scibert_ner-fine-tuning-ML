@@ -8,6 +8,8 @@ const EDGE_COLORS = {
   high: "#c026d3",
 };
 
+const WORKSPACE_LEGEND_WIDTH = "52%";
+
 export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
   const nodes = Array.isArray(payload?.nodes) ? payload.nodes : [];
   const allEdges = Array.isArray(payload?.edges) ? payload.edges : [];
@@ -26,8 +28,8 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
   const model = buildSelectionModel(nodes, edges);
   const visibilityFiltered = applyVisibilityFilter(model, filterMode);
   const filtered = applySelection(visibilityFiltered, activeWorkspaceRelationKey);
-  const axisRange = computeAxisRange(filtered.nodes);
   const edgeSeriesData = buildEdgeSeriesData(filtered.edges, nodeMap);
+  const hasRenderableRelations = filtered.edges.length > 0;
 
   chart.off("click");
   chart.on("click", (params) => {
@@ -56,6 +58,7 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
     animation: true,
     animationDuration: 350,
     animationDurationUpdate: 350,
+    animationEasing: "cubicOut",
     tooltip: {
       show: true,
       trigger: "item",
@@ -76,7 +79,7 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
         const node = params?.data || {};
         return [
           `<b>${escapeHtml(node.entity || "")}</b>`,
-          `Tipo dominante: ${escapeHtml(node.label || "UNKNOWN")}`,
+          `Tipo: ${escapeHtml(node.entityLabel || "UNKNOWN")}`,
           `Frecuencia total: ${Number(node.frequency || 0)}`,
           `Articulos del workspace: ${Number(node.articleCount || 0)}`,
         ].join("<br/>");
@@ -94,17 +97,11 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
       top: 20,
     },
     legend: {
-      type: "scroll",
-      top: 18,
+      type: "plain",
+      top: 4,
       left: "center",
+      width: WORKSPACE_LEGEND_WIDTH,
       orient: "horizontal",
-      pageButtonPosition: "end",
-      pageIconSize: 12,
-      pageTextStyle: {
-        fontSize: 11,
-        color: "#666",
-      },
-      pageIconColor: "#666",
       textStyle: {
         fontSize: 12,
         color: "#333",
@@ -115,16 +112,15 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
       borderWidth: 1,
       borderRadius: 4,
       padding: 8,
-      itemGap: 14,
+      itemGap: 12,
       itemWidth: 12,
       itemHeight: 12,
-      width: "96%",
     },
     grid: {
       left: 60,
       right: 30,
       bottom: 40,
-      top: 82,
+      top: 78,
       containLabel: true,
     },
     backgroundColor: "#fafafa",
@@ -150,9 +146,8 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
         filterMode: "none",
       },
     ],
-    xAxis: {
+    xAxis: hasRenderableRelations ? {
       type: "value",
-      ...(axisRange ? { min: axisRange.xMin, max: axisRange.xMax } : {}),
       name: "Dimension 1",
       nameLocation: "middle",
       nameGap: 30,
@@ -164,10 +159,12 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
       axisLine: { show: false },
       axisTick: { show: false },
       splitLine: { show: true, lineStyle: { color: "#f0f0f0" } },
-    },
-    yAxis: {
+    } : {
       type: "value",
-      ...(axisRange ? { min: axisRange.yMin, max: axisRange.yMax } : {}),
+      show: false,
+    },
+    yAxis: hasRenderableRelations ? {
+      type: "value",
       name: "Dimension 2",
       nameLocation: "middle",
       nameGap: 40,
@@ -179,9 +176,12 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
       axisLine: { show: false },
       axisTick: { show: false },
       splitLine: { show: true, lineStyle: { color: "#f0f0f0" } },
+    } : {
+      type: "value",
+      show: false,
     },
-    graphic: buildRelationLegend(),
-    series: [
+    graphic: hasRenderableRelations ? buildRelationLegend() : buildNoRelationsGraphic(filterMode),
+    series: hasRenderableRelations ? [
       {
         type: "lines",
         coordinateSystem: "cartesian2d",
@@ -198,7 +198,7 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
         data: edgeSeriesData,
       },
       ...buildNodeSeries(filtered.nodes),
-    ],
+    ] : [],
   }, true);
 
   if (typeof options.onRenderSummary === "function") {
@@ -216,7 +216,7 @@ export function resetWorkspaceRelationsSelection() {
 }
 
 function normalizeFilterMode(filterMode) {
-  if (filterMode === "all" || filterMode === "connected") {
+  if (["all", "connected", "low", "medium", "high"].includes(filterMode)) {
     return filterMode;
   }
   return "all";
@@ -252,6 +252,7 @@ function buildEdgeSeriesData(edges, nodeMap, visibleNodeKeys = null) {
               color: edge.muted ? "#d6dde3" : EDGE_COLORS[edge.tier],
               width: 2.4,
               opacity: edge.muted ? 0.1 : 1,
+              curveness: 0.08,
             },
           };
         })
@@ -292,7 +293,8 @@ function classifyEdge(score, thresholds) {
 }
 
 function matchesFilter(tier, filterMode) {
-  return Boolean(tier) || filterMode === "all";
+  if (filterMode === "all" || filterMode === "connected") return Boolean(tier);
+  return tier === filterMode;
 }
 
 function buildSelectionModel(nodes, edges) {
@@ -312,10 +314,13 @@ function buildSelectionModel(nodes, edges) {
 }
 
 function applyVisibilityFilter(model, filterMode) {
-  if (filterMode !== "connected") {
+  // Para "all", mostrar todos los nodos (incluyendo aislados)
+  if (filterMode === "all") {
     return model;
   }
 
+  // Para cualquier otro filtro (connected, low, medium, high),
+  // solo mostrar nodos que tienen al menos una arista
   const connectedKeys = new Set();
   model.edges.forEach(edge => {
     connectedKeys.add(edge.source);
@@ -362,7 +367,7 @@ function buildNodeSeries(nodes) {
       key: node.key,
       value: [Number(node.x || 0), Number(node.y || 0)],
       entity: node.entity,
-      label,
+      entityLabel: label,
       frequency: Number(node.frequency || 0),
       articleCount: Number(node.article_count || node.article_count === 0 ? node.article_count : node.articleCount || 0),
       isRelationNode: true,
@@ -379,7 +384,10 @@ function buildNodeSeries(nodes) {
     type: "scatter",
     z: 2,
     data,
-    emphasis: { focus: "none" },
+    emphasis: {
+      focus: "none",
+      scale: true,
+    },
     label: {
       show: true,
       position: "top",
@@ -399,7 +407,7 @@ function buildNodeSeries(nodes) {
     data: series.data.map(node => ({
       ...node,
       itemStyle: {
-        color: getColorForLabel(node.label),
+        color: getColorForLabel(node.entityLabel),
         opacity: selectionActive ? 1 : (node.muted ? 0.22 : 1),
         borderColor: node.selected ? "#212529" : "#ffffff",
         borderWidth: node.selected ? 2.4 : 1.2,
@@ -422,63 +430,81 @@ function sizeFromNode(node) {
 
 function buildRelationLegend() {
   const labels = [
-    { color: EDGE_COLORS.low, text: "Relacion baja" },
-    { color: EDGE_COLORS.medium, text: "Relacion media" },
-    { color: EDGE_COLORS.high, text: "Relacion alta" },
+    { color: EDGE_COLORS.low, text: "Baja" },
+    { color: EDGE_COLORS.medium, text: "Media" },
+    { color: EDGE_COLORS.high, text: "Alta" },
   ];
+  const itemWidth = 68;
 
   return [{
     type: "group",
-    right: 34,
-    bottom: 4,
+    right: 14,
+    bottom: 12,
     silent: true,
-    children: labels.flatMap((item, index) => {
-      const y = index * 18;
-      return [
-        {
-          type: "circle",
-          shape: { cx: 0, cy: y + 10, r: 5 },
-          style: {
-            fill: item.color,
-            stroke: "#ffffff",
-            lineWidth: 1,
-          },
+    children: [
+      {
+        type: "text",
+        style: {
+          x: 0,
+          y: 1,
+          text: "Relación:",
+          fill: "#6b7280",
+          font: "11px sans-serif",
         },
-        {
-          type: "text",
-          style: {
-            x: 12,
-            y: y + 4,
-            text: item.text,
-            fill: "#4b5563",
-            font: "12px sans-serif",
+      },
+      ...labels.flatMap((item, index) => {
+        const x = 58 + index * itemWidth;
+        return [
+          {
+            type: "line",
+            shape: { x1: x, y1: 8, x2: x + 14, y2: 8 },
+            style: { stroke: item.color, lineWidth: 3, lineCap: "round" },
           },
-        },
-      ];
-    }),
+          {
+            type: "text",
+            style: {
+              x: x + 20,
+              y: 1,
+              text: item.text,
+              fill: "#4b5563",
+              font: "11px sans-serif",
+            },
+          },
+        ];
+      }),
+    ],
   }];
 }
 
-function computeAxisRange(nodes) {
-  if (!Array.isArray(nodes) || !nodes.length) return null;
-  const xs = nodes.map(node => Number(node.x || 0)).filter(Number.isFinite);
-  const ys = nodes.map(node => Number(node.y || 0)).filter(Number.isFinite);
-  if (!xs.length || !ys.length) return null;
+function buildNoRelationsGraphic(filterMode) {
+  const message = filterMode === "connected"
+    ? "No hay relaciones para mostrar con ese filtro."
+    : filterMode === "low"
+      ? "No hay relaciones bajas."
+      : filterMode === "medium"
+        ? "No hay relaciones medias."
+        : filterMode === "high"
+          ? "No hay relaciones altas."
+          : "No hay relaciones para mostrar.";
 
-  const xMin = Math.min(...xs);
-  const xMax = Math.max(...xs);
-  const yMin = Math.min(...ys);
-  const yMax = Math.max(...ys);
-
-  const xPad = Math.max(1.5, (xMax - xMin) * 0.12);
-  const yPad = Math.max(1.5, (yMax - yMin) * 0.12);
-
-  return {
-    xMin: xMin - xPad,
-    xMax: xMax + xPad,
-    yMin: yMin - yPad,
-    yMax: yMax + yPad,
-  };
+  return [{
+    type: "group",
+    left: "center",
+    top: "middle",
+    silent: true,
+    children: [
+          {
+        type: "text",
+        style: {
+          x: -150,
+          y: 16,
+          text: message,
+          fill: "#6b7280",
+          font: "12px sans-serif",
+        },
+      },
+    ],
+  }];
 }
 
 function formatScore(value) {
