@@ -524,11 +524,11 @@
 <script type="module">
   import { loadTSNEData }                                from "{% static 'js/dataLoader.js' %}?v=20260405";
   import { initTSNEChart }                               from "{% static 'js/tsneChart.js' %}?v=20260405";
-  import { initTSNEFrequencyChart, resetFrequencyExpansion } from "{% static 'js/tsneChartFrequency.js' %}?v=20260405";
+  import { initTSNEFrequencyChart, resetFrequencyExpansion } from "{% static 'js/tsneChartFrequency.js' %}?v=20260429b";
   import { initTSNERelationsChart, resetRelationsSelection } from "{% static 'js/tsneChartRelations.js' %}?v=20260405";
   import { initWorkspaceAggregateChart, resetWorkspaceAggregateExpansion } from "{% static 'js/workspaceAggregateChart.js' %}?v=20260406";
   import { initWorkspaceRelationsChart, resetWorkspaceRelationsSelection } from "{% static 'js/workspaceRelationsChart.js' %}?v=20260405";
-  import { renderText }                                  from "{% static 'js/textPanel.js' %}?v=20260324";
+  import { renderText }                                  from "{% static 'js/textPanel.js' %}?v=20260429b";
   import { listWorkspaces, getWorkspace, createWorkspace, updateWorkspaceArticles, processWorkspace, deleteWorkspace } from "{% static 'js/workspaceApi.js' %}?v=20260401";
   import {
     getCachedArticleView,
@@ -991,6 +991,15 @@
       return true;
     }
 
+    const conflictingJobs = getWorkspaceActiveJobsForOtherModels(currentWorkspaceData, modelKey);
+    if (conflictingJobs.length > 0) {
+      const activeModels = Array.from(new Set(conflictingJobs.map(item => item.model))).join(", ");
+      renderEmptyWorkspaceState(
+        `Hay articulos de este workspace procesandose con otro modelo (${activeModels}). Espera a que terminen antes de lanzar "${modelKey}".`
+      );
+      return false;
+    }
+
     const currentModelSummary = currentWorkspaceData?.model_summary?.[modelKey] || {};
     const queuedCount = Number(currentModelSummary.queued_or_processing || 0);
     if (queuedCount > 0) {
@@ -1000,25 +1009,9 @@
       return false;
     }
 
-    const shouldProcess = window.confirm(
-      `Este workspace aun no tiene articulos procesados con el modelo "${modelKey}".\n\n¿Deseas procesarlo ahora?`
+    renderEmptyWorkspaceState(
+      `Este workspace aun no tiene articulos procesados con el modelo "${modelKey}". Usa el boton "Procesar" si quieres encolarlos.`
     );
-    if (!shouldProcess) {
-      renderEmptyWorkspaceState("Este workspace no tiene artículos procesados con el modelo seleccionado.");
-      return false;
-    }
-
-    showProgress(`Procesando workspace ${modelKey}...`);
-    try {
-      const workspace = await processWorkspaceAndWait(workspaceId, modelKey);
-      if (workspace) {
-        currentWorkspaceData = workspace;
-      }
-    } catch (error) {
-      alert("Error procesando workspace: " + error.message);
-    } finally {
-      hideProgress();
-    }
     return false;
   }
 
@@ -1071,28 +1064,14 @@
     return currentWorkspaceData;
   }
 
-  async function maybePromptWorkspaceProcessing(workspace, modelKey) {
-    if (!workspace || !Array.isArray(workspace.articles)) return true;
-
-    const missing = workspace.articles.filter(article => article?.exists && article.models?.[modelKey] !== "processed");
-    if (!missing.length) return true;
-
-    const message = `Este workspace tiene ${missing.length} articulo${missing.length === 1 ? "" : "s"} no procesado${missing.length === 1 ? "" : "s"} con el modelo ${modelKey}.\n\n¿Deseas procesarlos ahora?`;
-    const shouldProcess = window.confirm(message);
-    if (!shouldProcess) {
-      renderEmptyWorkspaceState("Procesa los artículos del workspace con el modelo seleccionado para ver la visualización.");
-      return false;
-    }
-
-    showProgress(`Procesando workspace ${modelKey}...`);
-    try {
-      await processWorkspaceAndWait(workspace.id, modelKey);
-    } catch (error) {
-      alert("Error procesando workspace: " + error.message);
-    } finally {
-      hideProgress();
-    }
-    return false;
+  function getWorkspaceActiveJobsForOtherModels(workspace, modelKey) {
+    if (!workspace || !Array.isArray(workspace.articles)) return [];
+    return workspace.articles.filter(article => {
+      if (!article?.exists) return false;
+      const status = String(article.status || "");
+      const activeModel = String(article.model || "");
+      return ["queued", "processing"].includes(status) && activeModel && activeModel !== modelKey;
+    });
   }
 
   function updateChartModeButton() {
@@ -1555,8 +1534,6 @@
       if (workspaceSelect) workspaceSelect.value = workspaceId;
       updateWorkspaceButtonsState();
       if (currentScopeMode !== "workspaces") return;
-      const shouldContinue = await maybePromptWorkspaceProcessing(workspace, currentModelKey);
-      if (!shouldContinue) return;
       if (currentWorkspaceChartMode === "relations") {
         await loadWorkspaceRelations(workspaceId, currentModelKey);
       } else {
@@ -1842,6 +1819,12 @@
     if (!currentWorkspaceId) return;
     if (!currentWorkspaceData || !Array.isArray(currentWorkspaceData.articles) || !currentWorkspaceData.articles.length) {
       alert("Este workspace aun no tiene articulos. Agrega articulos primero.");
+      return;
+    }
+    const conflictingJobs = getWorkspaceActiveJobsForOtherModels(currentWorkspaceData, currentModelKey);
+    if (conflictingJobs.length > 0) {
+      const activeModels = Array.from(new Set(conflictingJobs.map(item => item.model))).join(", ");
+      alert(`Hay articulos de este workspace en cola o procesandose con otro modelo (${activeModels}). Espera a que terminen antes de procesar con ${currentModelKey}.`);
       return;
     }
     showProgress("Procesando workspace...");

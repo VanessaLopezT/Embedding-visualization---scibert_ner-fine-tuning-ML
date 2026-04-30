@@ -46,6 +46,7 @@ PROCESSING_DIR = Path(__file__).parent       # Carpeta actual (processing)
 
 # --- Límite de RAM suave (en GB) para decidir si hacer flush a disco ---
 _RAM_FLUSH_THRESHOLD_ENTITIES = 5000  # flush embeddings cada N entidades
+_MIN_ENTITY_ALNUM_LENGTH = 3
 
 
 def process_article_if_needed(text_input):
@@ -219,6 +220,74 @@ class SciBERTNERProcessor:
         # Siempre decodificar para devolver texto limpio y dentro del límite
         return self.tokenizer.decode(token_ids, skip_special_tokens=True)
 
+    def _normalize_entity_text(self, chunk, start, end):
+        if not chunk:
+            return ""
+        start = max(0, int(start))
+        end = min(len(chunk), int(end))
+        if end <= start:
+            return ""
+        return chunk[start:end]
+
+    def _is_meaningful_entity_text(self, text):
+        cleaned = str(text or "").replace("##", "").strip()
+        return any(char.isalnum() for char in cleaned)
+
+    def _has_minimum_entity_length(self, text, min_length=_MIN_ENTITY_ALNUM_LENGTH):
+        cleaned = "".join(char for char in str(text or "") if char.isalnum())
+        return len(cleaned) >= min_length
+
+    def _should_merge_adjacent_entities(self, previous, current, chunk):
+        if not previous or not current:
+            return False
+        if previous.get("entity_group") != current.get("entity_group"):
+            return False
+
+        prev_end = int(previous.get("end", -1))
+        curr_start = int(current.get("start", -1))
+        if curr_start < prev_end:
+            return False
+
+        current_word = str(current.get("_raw_word", current.get("word", "")))
+        if not current_word.startswith("##"):
+            return False
+
+        gap = chunk[prev_end:curr_start]
+        return not gap or gap.isspace()
+
+    def _merge_entities(self, previous, current, chunk):
+        merged = dict(previous)
+        merged["end"] = int(current["end"])
+        merged["word"] = self._normalize_entity_text(chunk, merged["start"], merged["end"])
+        merged["score"] = max(float(previous.get("score", 0.0)), float(current.get("score", 0.0)))
+        return merged
+
+    def _postprocess_entities(self, chunk, entities):
+        normalized = []
+
+        for entity in entities:
+            item = dict(entity)
+            item["start"] = int(item.get("start", 0))
+            item["end"] = int(item.get("end", 0))
+            item["score"] = float(item.get("score", 0.0))
+            item["_raw_word"] = str(item.get("word", ""))
+            item["word"] = self._normalize_entity_text(chunk, item["start"], item["end"])
+
+            if not self._is_meaningful_entity_text(item["word"]):
+                continue
+
+            if normalized and self._should_merge_adjacent_entities(normalized[-1], item, chunk):
+                normalized[-1] = self._merge_entities(normalized[-1], item, chunk)
+                continue
+
+            item.pop("_raw_word", None)
+            normalized.append(item)
+
+        return [
+            item for item in normalized
+            if self._has_minimum_entity_length(item.get("word", ""))
+        ]
+
     # ------------------------------------------------------------------ #
     #  PROCESAMIENTO PRINCIPAL                                            #
     # ------------------------------------------------------------------ #
@@ -283,6 +352,7 @@ class SciBERTNERProcessor:
                 texts=np.array(buf_texts),
                 text_index=np.array(buf_text_index, dtype=np.int32),
                 sentence_ids=np.array(buf_sentence_ids, dtype=np.int32),
+                offsets=np.array(buf_offsets, dtype=np.int32),
             )
             flushed_files.append(part_path)
             flush_counter += 1
@@ -308,8 +378,7 @@ class SciBERTNERProcessor:
                         print(f"[ERROR] texto {text_idx+1}, chunk {chunk_idx+1}: {e}")
                         raise
 
-                    for e in entities:
-                        e["score"] = float(e["score"])
+                    entities = self._postprocess_entities(safe_chunk, entities)
                     all_entities.extend(entities)
 
                     # Si no hay entidades en este chunk, no necesitamos embeddings
@@ -364,9 +433,10 @@ class SciBERTNERProcessor:
 
                         buf_embeddings.append(emb)
                         buf_labels.append(ent["entity_group"])
-                        buf_texts.append(safe_chunk[start:end])
+                        buf_texts.append(ent["word"])
                         buf_text_index.append(text_idx)
                         buf_sentence_ids.append(sid)
+                        buf_offsets.append([int(start), int(end)])
 
                     # Liberar tensores del chunk
                     del penultimate, offsets, inputs
@@ -400,7 +470,7 @@ class SciBERTNERProcessor:
         #  Consolidar archivos parciales en el .npz final              #
         # ----------------------------------------------------------- #
         if flushed_files:
-            all_emb, all_lab, all_txt, all_tidx, all_sid = [], [], [], [], []
+            all_emb, all_lab, all_txt, all_tidx, all_sid, all_offsets = [], [], [], [], [], []
             for fp in flushed_files:
                 d = np.load(fp, allow_pickle=True)
                 all_emb.append(d["embeddings"])
@@ -408,6 +478,7 @@ class SciBERTNERProcessor:
                 all_txt.append(d["texts"])
                 all_tidx.append(d["text_index"])
                 all_sid.append(d["sentence_ids"])
+                all_offsets.append(d["offsets"] if "offsets" in d.files else np.empty((0, 2), dtype=np.int32))
                 d.close()
                 os.remove(fp)  # Liberar espacio en disco
             np.savez_compressed(
@@ -417,10 +488,11 @@ class SciBERTNERProcessor:
                 texts=np.concatenate(all_txt) if all_txt else np.array([]),
                 text_index=np.concatenate(all_tidx) if all_tidx else np.array([]),
                 sentence_ids=np.concatenate(all_sid) if all_sid else np.array([]),
+                offsets=np.concatenate(all_offsets) if all_offsets else np.empty((0, 2), dtype=np.int32),
                 sentence_texts=np.array(sentence_store),
             )
             # Liberar listas de consolidación
-            del all_emb, all_lab, all_txt, all_tidx, all_sid
+            del all_emb, all_lab, all_txt, all_tidx, all_sid, all_offsets
             gc.collect()
         else:
             # Sin entidades
@@ -431,6 +503,7 @@ class SciBERTNERProcessor:
                 texts=np.array([]),
                 text_index=np.array([]),
                 sentence_ids=np.array([]),
+                offsets=np.empty((0, 2), dtype=np.int32),
                 sentence_texts=np.array(sentence_store),
             )
 
@@ -506,6 +579,7 @@ class SciBERTNERProcessor:
             texts = data["texts"]
             text_index = data["text_index"]
             sentence_ids = data["sentence_ids"]
+            offsets = data["offsets"] if "offsets" in data.files else np.empty((0, 2), dtype=np.int32)
             sentence_texts = data["sentence_texts"]
 
             if len(embeddings) < 2:
@@ -527,6 +601,8 @@ class SciBERTNERProcessor:
                         "entity": str(texts[i]),
                         "text_index": int(text_index[i]),
                         "sentence_id": sid,
+                        "start": int(offsets[i][0]) if i < len(offsets) else None,
+                        "end": int(offsets[i][1]) if i < len(offsets) else None,
                         "sentence_text": str(sentence_texts[sid]) if sid < len(sentence_texts) else "",
                     })
 

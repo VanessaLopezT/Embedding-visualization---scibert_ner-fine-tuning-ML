@@ -96,9 +96,9 @@ function renderWorkspaceAggregate(chart, points) {
 
   chart.setOption({
     animation: true,
-    animationDuration: 350,
-    animationDurationUpdate: 350,
-    animationEasing: "cubicOut",
+    animationDuration: 0,
+    animationDurationUpdate: 0,
+    animationEasing: "linear",
     tooltip: {
       show: true,
       formatter(params) {

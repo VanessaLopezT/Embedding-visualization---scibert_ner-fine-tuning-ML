@@ -67,13 +67,13 @@ export function initTSNEFrequencyChart(chart, data, axisRange = null, options = 
   chart.on("mouseover", (params) => {
     if (!params.data) return;
     if (params.data.id !== undefined) {
-      highlightEntityInPanel(params.data.id, params.data.entity);
+      highlightEntityInPanel(params.data);
       return;
     }
     if (params.data.isAggregate && Number(params.data.frequency || 0) <= 1) {
       const only = Array.isArray(params.data.occurrences) ? params.data.occurrences[0] : null;
       if (only && only.id !== undefined) {
-        highlightEntityInPanel(only.id, only.entity);
+        highlightEntityInPanel(only);
       }
     }
   });
@@ -88,7 +88,7 @@ export function initTSNEFrequencyChart(chart, data, axisRange = null, options = 
       if (Number(params.data.frequency || 0) <= 1) {
         const only = Array.isArray(params.data.occurrences) ? params.data.occurrences[0] : null;
         if (only && only.id !== undefined) {
-          highlightEntityInPanel(only.id, only.entity);
+          highlightEntityInPanel(only);
         }
         return;
       }
@@ -100,7 +100,7 @@ export function initTSNEFrequencyChart(chart, data, axisRange = null, options = 
     if (params.data.isOccurrence) {
       // Click en bolita pequena: seleccionar y colapsar.
       if (params.data.id !== undefined) {
-        highlightEntityInPanel(params.data.id, params.data.entity);
+        highlightEntityInPanel(params.data);
       }
       expandedEntityKey = null;
       renderFrequency(chart, safeData);
@@ -108,7 +108,7 @@ export function initTSNEFrequencyChart(chart, data, axisRange = null, options = 
       return;
     }
     if (params.data.id !== undefined) {
-      highlightEntityInPanel(params.data.id, params.data.entity);
+      highlightEntityInPanel(params.data);
     }
   });
 
@@ -468,8 +468,9 @@ function buildFrequencySeries(data, expandedKey, scaleOptions = {}) {
   }));
 }
 
-function highlightEntityInPanel(id, entityText = "") {
-  const entityEl = findEntityElement(id, entityText);
+function highlightEntityInPanel(datum) {
+  clearHighlightInPanel();
+  const entityEl = findEntityElement(datum);
   if (entityEl) {
     entityEl.classList.add("highlighted");
     const panel = document.getElementById("text-panel");
@@ -480,7 +481,20 @@ function highlightEntityInPanel(id, entityText = "") {
   }
 }
 
-function findEntityElement(id, entityText = "") {
+function findEntityElement(datum) {
+  const id = datum?.id;
+  const entityText = datum?.entity || "";
+  const sentenceId = Number(datum?.sentence_id);
+  const start = Number(datum?.start);
+  const end = Number(datum?.end);
+
+  if (Number.isInteger(sentenceId) && Number.isInteger(start) && Number.isInteger(end)) {
+    const exact = document.querySelector(
+      `[data-sentence-id="${sentenceId}"][data-start="${start}"][data-end="${end}"]`
+    );
+    if (exact) return exact;
+  }
+
   let entityEl = document.querySelector(`[data-id="${id}"]`);
   if (entityEl) return entityEl;
   const key = normalizeEntityKey(entityText);

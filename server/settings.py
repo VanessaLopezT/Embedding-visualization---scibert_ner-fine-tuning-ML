@@ -12,7 +12,7 @@ ALLOWED_HOSTS = ["*"]
 INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.staticfiles",
-    "articles",
+    "articles.apps.ArticlesConfig",
 ]
 
 MIDDLEWARE = [

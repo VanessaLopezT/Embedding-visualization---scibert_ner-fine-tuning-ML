@@ -94,6 +94,12 @@ export function renderText(data, container, externalTitle = null, options = {}) 
   }
 
   if (mode === "entities" && cleanedText) {
+    if (hasExactEntityOffsets(sentenceList)) {
+      renderExactSentenceBlocks(sentenceList, container, { skipTitle: titleRendered });
+      bindTextInteractions();
+      return;
+    }
+
     const paragraphs = buildEntityParagraphs(cleanedText, sentenceList);
     paragraphs.forEach(paragraph => {
       const ranges = [];
@@ -173,6 +179,68 @@ export function renderText(data, container, externalTitle = null, options = {}) 
   bindTextInteractions();
 }
 
+function hasExactEntityOffsets(sentenceList) {
+  return Array.isArray(sentenceList) && sentenceList.some(sentence =>
+    Array.isArray(sentence?.entities) && sentence.entities.some(ent =>
+      Number.isInteger(ent?.start) && Number.isInteger(ent?.end)
+    )
+  );
+}
+
+function renderExactSentenceBlocks(sentenceList, container, options = {}) {
+  const skipTitle = Boolean(options.skipTitle);
+
+  sentenceList.forEach(sentence => {
+    const text = String(sentence?.text || "");
+    const isTitle = /^TITLE:\s*/i.test(text.trim());
+    if (isTitle && skipTitle) return;
+
+    const ranges = buildExactRanges(text, sentence.entities || []);
+    if (!ranges.length) return;
+
+    const el = document.createElement(isTitle ? "h3" : "p");
+    if (isTitle) {
+      el.className = "article-title";
+    }
+    el.innerHTML = buildHtmlFromRanges(text, ranges);
+    container.appendChild(el);
+
+    if (isTitle) {
+      const spacer = document.createElement("div");
+      spacer.className = "title-spacer";
+      container.appendChild(spacer);
+    }
+  });
+}
+
+function buildExactRanges(text, entities) {
+  const ranges = [];
+  const sourceText = String(text || "");
+
+  (Array.isArray(entities) ? entities : []).forEach(ent => {
+    const start = Number(ent?.start);
+    const end = Number(ent?.end);
+    if (!Number.isInteger(start) || !Number.isInteger(end)) return;
+    if (start < 0 || end <= start || end > sourceText.length) return;
+
+    ranges.push({
+      start,
+      end,
+      id: ent.id,
+      sentenceId: ent.sentence_id,
+      label: ent.label,
+      entity: ent.entity || sourceText.slice(start, end)
+    });
+  });
+
+  ranges.sort((a, b) => a.start - b.start || a.end - b.end);
+  return ranges.filter((range, index) => {
+    if (index === 0) return true;
+    const prev = ranges[index - 1];
+    return range.start >= prev.end;
+  });
+}
+
 function bindTextInteractions() {
   // Las interacciones ahora solo vienen desde la gráfica (hover)
   // Las entidades solo se resaltan cuando se hace hover en la gráfica
@@ -206,7 +274,10 @@ function buildHtmlFromRanges(text, ranges) {
     if (r.start < cursor) continue;
     result += escapeHtml(text.slice(cursor, r.start));
     const _color = getColorForLabel(r.label);
-    result += `<span class="entity" data-id="${r.id}" data-entity-key="${escapeHtml(normalizeEntityKey(r.entity || text.slice(r.start, r.end)))}" data-label="${escapeHtml(String(r.label || ""))}" style="color:${_color}; border-bottom: 2px solid ${_color};">${escapeHtml(text.slice(r.start, r.end))}</span>`;
+    const sentenceAttr = Number.isInteger(r.sentenceId) ? ` data-sentence-id="${r.sentenceId}"` : "";
+    const startAttr = Number.isInteger(r.start) ? ` data-start="${r.start}"` : "";
+    const endAttr = Number.isInteger(r.end) ? ` data-end="${r.end}"` : "";
+    result += `<span class="entity" data-id="${r.id}"${sentenceAttr}${startAttr}${endAttr} data-entity-key="${escapeHtml(normalizeEntityKey(r.entity || text.slice(r.start, r.end)))}" data-label="${escapeHtml(String(r.label || ""))}" style="color:${_color}; border-bottom: 2px solid ${_color};">${escapeHtml(text.slice(r.start, r.end))}</span>`;
     cursor = r.end;
   }
   result += escapeHtml(text.slice(cursor));

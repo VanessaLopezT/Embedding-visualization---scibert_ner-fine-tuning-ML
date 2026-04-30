@@ -118,6 +118,27 @@ def enqueue_workspace_processing(workspace_id: str, model_key: str) -> dict:
         raise ValueError(f"Modelo desconocido: '{model_key}'")
 
     summary = get_workspace_summary(workspace_id)
+    conflicting_jobs = []
+
+    for article in summary["articles"]:
+        if not article.get("exists"):
+            continue
+        article_status = article.get("status")
+        article_model = article.get("model")
+        if article_status in {"queued", "processing"} and article_model and article_model != model_key:
+            conflicting_jobs.append({
+                "article_id": article["id"],
+                "model": article_model,
+                "status": article_status,
+            })
+
+    if conflicting_jobs:
+        active_models = ", ".join(sorted({item["model"] for item in conflicting_jobs}))
+        raise ValueError(
+            f"Hay articulos del workspace en cola o procesandose con otro modelo ({active_models}). "
+            f"Espera a que terminen antes de procesar con '{model_key}'."
+        )
+
     accepted = []
     skipped = []
 

@@ -23,6 +23,8 @@ from pathlib import Path
 
 from django.conf import settings
 
+from .model_registry import MODEL_REGISTRY
+
 
 DATA_DIR = settings.DATA_DIR
 ARTICLES_DIR = DATA_DIR / "articles"
@@ -112,6 +114,9 @@ class ModelWorker(threading.Thread):
 
     def submit(self, job: ArticleJob):
         self._jobs.put(job)
+
+    def preload(self, checkpoint_path: str):
+        self._get_or_load_processor(checkpoint_path)
 
     def run(self):
         while True:
@@ -257,6 +262,10 @@ class ProcessingCoordinator:
         with self._lock:
             self._pending_keys.discard((article_id, model_key))
 
+    def ensure_worker(self, model_key: str) -> ModelWorker:
+        with self._lock:
+            return self._get_worker_locked(model_key)
+
     def _get_worker_locked(self, model_key: str) -> ModelWorker:
         worker = self._workers.get(model_key)
         if worker is None:
@@ -267,10 +276,29 @@ class ProcessingCoordinator:
 
 
 _COORDINATOR = ProcessingCoordinator()
+_PRELOAD_LOCK = threading.Lock()
+_PRELOAD_COMPLETED = False
 
 
 def submit_article_job(article_id: str, raw_path: Path, model_key: str, checkpoint_path: str) -> bool:
     return _COORDINATOR.submit(article_id, raw_path, model_key, checkpoint_path)
+
+
+def preload_registered_models():
+    global _PRELOAD_COMPLETED
+
+    with _PRELOAD_LOCK:
+        if _PRELOAD_COMPLETED:
+            return
+
+        for model_key, config in MODEL_REGISTRY.items():
+            checkpoint_path = config["checkpoint"]
+            worker = _COORDINATOR.ensure_worker(model_key)
+            print(f"[INIT] Precargando modelo '{model_key}'...")
+            worker.preload(checkpoint_path)
+            print(f"[INIT] Modelo '{model_key}' listo.")
+
+        _PRELOAD_COMPLETED = True
 
 
 def _load_processor(checkpoint_path: str):

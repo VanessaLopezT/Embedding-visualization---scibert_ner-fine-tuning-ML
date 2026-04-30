@@ -34,6 +34,7 @@ def main(embeddings_file="entity_embeddings.npz", output="web/tsne_data.json"):
     text_index = data["text_index"]        # índice del texto original
     sentence_texts = data["sentence_texts"]  # texto completo de la frase
     sentence_ids = data["sentence_ids"]      # ID de la frase
+    offsets = data["offsets"] if "offsets" in data.files else np.empty((0, 2), dtype=np.int32)
 
     print(f"[OK] Entidades: {len(embeddings)}")
     if len(embeddings) < 2:
@@ -94,6 +95,8 @@ def main(embeddings_file="entity_embeddings.npz", output="web/tsne_data.json"):
             "entity": texts[i],                       # texto real de la entidad
             "text_index": int(text_index[i]),         # índice del texto original
             "sentence_id": sid,                       # ID de la frase
+            "start": int(offsets[i][0]) if i < len(offsets) else None,
+            "end": int(offsets[i][1]) if i < len(offsets) else None,
             "sentence_text": str(sentence_texts[sid]) if 0 <= sid < len(sentence_texts) else ""
         })
 

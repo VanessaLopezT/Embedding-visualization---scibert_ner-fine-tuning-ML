@@ -437,6 +437,16 @@ def reprocess_article(request, article_id):
     if not meta:
         return JsonResponse({"error": "Artículo no encontrado"}, status=404)
 
+    active_status = meta.get("status")
+    active_model = meta.get("model")
+    if active_status in {"queued", "processing"} and active_model and active_model != model_key:
+        return JsonResponse({
+            "error": (
+                f"El artÃ­culo ya estÃ¡ en cola o procesÃ¡ndose con otro modelo ({active_model}). "
+                "Espera a que termine antes de cambiarlo."
+            )
+        }, status=409)
+
     raw_file = meta.get("raw_file")
     if not raw_file:
         return JsonResponse({"error": "Archivo original no disponible"}, status=404)
