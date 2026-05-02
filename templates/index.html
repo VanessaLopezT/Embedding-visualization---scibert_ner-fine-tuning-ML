@@ -6,7 +6,7 @@
 
   {% load static %}
   <link rel="stylesheet" href="{% static 'css/style.css' %}?v=20260315" />
-  <link rel="stylesheet" href="{% static 'css/textPanel.css' %}?v=20260315" />
+  <link rel="stylesheet" href="{% static 'css/textPanel.css' %}?v=20260602" />
   <style>
     html, body { height: 100%; overflow: hidden !important; }
   </style>
@@ -51,7 +51,39 @@
       transition: all 0.2s;
     }
     .upload-btn:hover { background: #0b5ed7; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .upload-btn:disabled { background: #ccc; cursor: not-allowed; }
+    .upload-btn:disabled { background: #ccc; cursor: not-allowed; color: #666; border: none; }
+
+    /* Misma lógica visual que carga deshabilitada: botones «Procesar» (Gestionar + modal confirmación) */
+    .process-action-btn {
+      padding: 8px 18px;
+      border: 1px solid #0d6efd;
+      border-radius: 5px;
+      background: #fff;
+      color: #0b5ed7;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+      white-space: nowrap;
+    }
+    .process-action-btn:hover:not(:disabled) {
+      background: #e7f1ff;
+      border-color: #0b5ed7;
+    }
+    .process-action-btn--cmt {
+      border-color: #6f42c1;
+      color: #5b2c91;
+    }
+    .process-action-btn--cmt:hover:not(:disabled) {
+      background: #f3e9ff;
+      border-color: #5b2c91;
+    }
+    .process-action-btn:disabled {
+      background: #ccc !important;
+      border-color: #bbb !important;
+      color: #666 !important;
+      cursor: not-allowed !important;
+    }
     #file-input { display: none; }
 
     .loading-indicator {
@@ -212,6 +244,51 @@
     }
     .chart-relations-btn[hidden] { display: none !important; }
 
+    /* Canvas debajo de overlays (#chart-panel tiene position:relative en el marcado) */
+    #tsne-chart {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+    }
+    #frequency-scale-controls {
+      z-index: 15;
+      pointer-events: auto;
+    }
+    #workspace-relations-filter-controls #workspace-relations-score-range,
+    #article-relations-filter-controls #article-relations-score-range {
+      width: 112px;
+      max-width: min(118px, 26vw);
+      margin: 0;
+      vertical-align: middle;
+    }
+    button.rel-score-reset-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      margin: 0;
+      border: none;
+      background: transparent;
+      color: #868e96;
+      border-radius: 4px;
+      cursor: pointer;
+      line-height: 1;
+    }
+    button.rel-score-reset-btn:hover {
+      background: rgba(0, 0, 0, 0.06);
+      color: #495057;
+    }
+    button.rel-score-reset-btn:focus-visible {
+      outline: 2px solid #94b8f5;
+      outline-offset: 1px;
+    }
+    button.rel-score-reset-btn svg {
+      pointer-events: none;
+    }
+
     .chart-help {
       position: absolute; top: 10px; right: 12px; z-index: 3;
     }
@@ -265,7 +342,7 @@
     </div>
     <div id="article-controls" class="workspace-controls">
       <select id="article-select" class="article-select">
-        <option value="">Seleccionar articulo</option>
+        <option value="">Seleccionar artículo</option>
       </select>
     </div>
     <div id="workspace-controls" class="workspace-controls" hidden>
@@ -278,14 +355,15 @@
         </select>
       </div>
       <div class="header-mode-toggle" hidden>
-        <button id="workspace-view-articles-btn" class="workspace-view-btn active" type="button">Vista: Articulos</button>
-        <button id="workspace-view-global-btn" class="workspace-view-btn" type="button" disabled title="Proximamente">Vista: Global</button>
+        <button id="workspace-view-articles-btn" class="workspace-view-btn active" type="button">Vista: Artículos</button>
+        <button id="workspace-view-global-btn" class="workspace-view-btn" type="button" disabled title="Próximamente">Vista: Global</button>
       </div>
     </div>
     <!-- Selector de modelo (tech / cmt) -->
     <select id="model-select" class="model-select" title="Seleccionar modelo NER">
       <option value="tech">TechBERT</option>
       <option value="cmt">PatVetBERT</option>
+      <option value="ambos">Ambos (Tech + PatVetBERT)</option>
     </select>
   </div>
 
@@ -312,14 +390,13 @@
   <div style="height:6px; background:#eee; border-radius:6px; overflow:hidden;">
     <div id="progress-bar" style="height:6px; width:0%; background:#0d6efd; transition: width 0.3s;"></div>
   </div>
-  <div id="entities-info" style="font-size:11px; color:#666; margin-top:4px;"></div>
 </div>
 
 <!-- ── CONTENIDO PRINCIPAL ── -->
 <div id="container" style="flex:1; min-height:0; overflow:hidden;">
 
   <!-- Panel gráfica t-SNE -->
-  <div id="chart-panel" style="height: 100%; overflow: hidden;">
+  <div id="chart-panel" style="height: 100%; overflow: hidden; position: relative;">
     <div class="chart-view-controls">
       <button id="chart-original-btn" class="chart-view-btn" type="button">Vista: Original</button>
       <button id="chart-frequency-btn" class="chart-view-btn" type="button">Vista: Frecuencia</button>
@@ -327,7 +404,7 @@
     </div>
 
     <div id="frequency-scale-controls"
-      style="position:absolute; top:40px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
+      style="position:absolute; top:40px; left:12px; z-index:15; pointer-events:auto; background:rgba(255,255,255,0.92);
              border:1px solid #e0e0e0; border-radius:6px; padding:6px 8px;
              display:none; align-items:center; gap:6px; font-size:12px; color:#444;">
       <label for="frequency-scale-select" style="font-size:12px;">Escala:</label>
@@ -340,7 +417,8 @@
     <div id="workspace-relations-filter-controls"
       style="position:absolute; top:40px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
              border:1px solid #e0e0e0; border-radius:6px; padding:6px 8px;
-             display:none; align-items:center; gap:6px; font-size:12px; color:#444;">
+             display:none; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px; color:#444;
+             max-width:min(96vw, 640px);">
       <label for="workspace-relations-filter-select" style="font-size:12px;">Mostrar:</label>
       <select id="workspace-relations-filter-select" style="font-size:12px; border:1px solid #d0d0d0; border-radius:4px; padding:2px 4px;">
         <option value="all" selected>Todo</option>
@@ -349,12 +427,25 @@
         <option value="medium">Solo medias</option>
         <option value="high">Solo altas</option>
       </select>
+      <span aria-hidden="true" style="width:1px; height:18px; background:#dee2e6; align-self:center; flex-shrink:0;"></span>
+      <label for="workspace-relations-score-range"
+        title="Cuanto m&aacute;s alto, m&aacute;s exigente: se muestran menos relaciones, solo entre entidades mejor conectadas."
+        style="white-space:nowrap;">Exigencia</label>
+      <input id="workspace-relations-score-range" type="range" min="0.24" max="0.99" step="0.005" value="0.24" />
+      <span id="workspace-relations-score-value" style="font-size:12px;color:#444;font-variant-numeric:tabular-nums;min-width:2.25em">&mdash;</span>
+      <button type="button" class="rel-score-reset-btn" id="workspace-relations-score-reset"
+        title="Restaurar exigencia al valor por defecto de esta vista/modelo"
+        aria-label="Restaurar exigencia por defecto">
+        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      </button>
     </div>
 
     <div id="article-relations-filter-controls"
       style="position:absolute; top:40px; left:12px; z-index:6; background:rgba(255,255,255,0.92);
              border:1px solid #e0e0e0; border-radius:6px; padding:6px 8px;
-             display:none; align-items:center; gap:6px; font-size:12px; color:#444;">
+             display:none; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px; color:#444;
+             max-width:min(720px, 96vw);">
       <label for="article-relations-filter-select" style="font-size:12px;">Mostrar:</label>
       <select id="article-relations-filter-select" style="font-size:12px; border:1px solid #d0d0d0; border-radius:4px; padding:2px 4px;">
         <option value="all" selected>Todo</option>
@@ -363,6 +454,18 @@
         <option value="medium">Solo medias</option>
         <option value="high">Solo altas</option>
       </select>
+      <span aria-hidden="true" style="width:1px; height:20px; background:#dee2e6; align-self:center;"></span>
+      <label for="article-relations-score-range"
+        title="Cuanto m&aacute;s alto, m&aacute;s exigente: se muestran menos relaciones, solo entre entidades mejor conectadas."
+        style="white-space:nowrap;">Exigencia</label>
+      <input id="article-relations-score-range" type="range" min="0.05" max="0.95" step="0.01" value="0.16" />
+      <span id="article-relations-score-value" style="min-width:2.5em;font-variant-numeric:tabular-nums;">0.16</span>
+      <button type="button" class="rel-score-reset-btn" id="article-relations-score-reset"
+        title="Restaurar exigencia al valor por defecto (articulo / modelo)"
+        aria-label="Restaurar exigencia por defecto">
+        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      </button>
     </div>
 
     <div id="workspace-chart-summary"
@@ -416,10 +519,12 @@
   <!-- Panel texto analizado -->
   <div id="text-panel" style="height: 100%; overflow-y: auto;">
     <div style="margin-bottom: 15px;">
-      <h2 style="text-align:center; margin-bottom: 8px;">Texto Analizado</h2>
+      <h2 style="text-align:center; margin-bottom: 8px;">Texto analizado</h2>
       <div style="text-align:center;">
         <span id="data-source" style="font-size: 12px; color: #999;">
-          <span id="data-source-label">Datos de ejemplo</span> &middot;
+          <span id="data-source-prefix">
+            <span id="data-source-label">Datos de ejemplo</span> &middot;
+          </span>
           <button id="btn-entities-only" class="data-toggle-btn active" type="button">P&aacute;rrafos con entidades: -</button>
           &middot;
           <button id="btn-all-paragraphs" class="data-toggle-btn" type="button">P&aacute;rrafos totales: -</button>
@@ -440,7 +545,7 @@
      background:rgba(0,0,0,0.45); align-items:center; justify-content:center;">
   <div style="background:#fff; border-radius:10px; padding:28px 32px; max-width:460px; width:92%;
               box-shadow:0 12px 40px rgba(0,0,0,0.2); font-family: inherit;">
-    <h3 style="margin:0 0 14px; font-size:16px; color:#1a1a1a;">Nuevo Workspace</h3>
+    <h3 style="margin:0 0 14px; font-size:16px; color:#1a1a1a;">Nuevo workspace</h3>
     <div style="display:flex; flex-direction:column; gap:12px;">
       <label style="display:flex; flex-direction:column; gap:6px; font-size:13px; color:#444;">
         Nombre
@@ -472,7 +577,7 @@
      background:rgba(0,0,0,0.45); align-items:center; justify-content:center;">
   <div style="background:#fff; border-radius:10px; padding:28px 32px; max-width:760px; width:94%;
               max-height:86vh; overflow:auto; box-shadow:0 12px 40px rgba(0,0,0,0.2); font-family: inherit;">
-    <h3 id="workspace-manage-title" style="margin:0 0 14px; font-size:16px; color:#1a1a1a;">Gestionar Workspace</h3>
+    <h3 id="workspace-manage-title" style="margin:0 0 14px; font-size:16px; color:#1a1a1a;">Gestionar workspace</h3>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:18px;">
       <div>
         <h4 style="margin:0 0 10px; font-size:14px; color:#333;">Art&iacute;culos en el workspace</h4>
@@ -503,7 +608,7 @@
   <div style="background:#fff; border-radius:10px; padding:28px 32px; max-width:420px; width:90%;
               box-shadow:0 12px 40px rgba(0,0,0,0.2); font-family: inherit;">
     <h3 style="margin:0 0 10px; font-size:16px; color:#1a1a1a;">Resultados no disponibles</h3>
-    <p id="modal-process-msg" style="margin:0 0 20px; font-size:13px; color:#555; line-height:1.6;">
+    <p id="modal-process-msg" style="margin:0 0 20px; font-size:13px; color:#555; line-height:1.6; white-space:pre-line;">
       Este artículo aún no ha sido procesado con el modelo seleccionado. ¿Deseas procesarlo ahora?
     </p>
     <div style="display:flex; gap:10px; justify-content:flex-end;">
@@ -512,9 +617,7 @@
                color:#555; border-radius:5px; cursor:pointer; font-size:13px;">
         Cancelar
       </button>
-      <button id="modal-process-btn" type="button"
-        style="padding:8px 18px; border:none; background:#0d6efd;
-               color:#fff; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600;">
+      <button id="modal-process-btn" type="button" class="process-action-btn">
         Procesar ahora
       </button>
     </div>
@@ -523,12 +626,12 @@
 
 <script type="module">
   import { loadTSNEData }                                from "{% static 'js/dataLoader.js' %}?v=20260405";
-  import { initTSNEChart }                               from "{% static 'js/tsneChart.js' %}?v=20260405";
-  import { initTSNEFrequencyChart, resetFrequencyExpansion } from "{% static 'js/tsneChartFrequency.js' %}?v=20260429b";
-  import { initTSNERelationsChart, resetRelationsSelection } from "{% static 'js/tsneChartRelations.js' %}?v=20260405";
-  import { initWorkspaceAggregateChart, resetWorkspaceAggregateExpansion } from "{% static 'js/workspaceAggregateChart.js' %}?v=20260406";
-  import { initWorkspaceRelationsChart, resetWorkspaceRelationsSelection } from "{% static 'js/workspaceRelationsChart.js' %}?v=20260405";
-  import { renderText }                                  from "{% static 'js/textPanel.js' %}?v=20260429b";
+  import { initTSNEChart }                               from "{% static 'js/tsneChart.js' %}?v=20260603e";
+  import { initTSNEFrequencyChart, resetFrequencyExpansion } from "{% static 'js/tsneChartFrequency.js' %}?v=20260603e";
+  import { initTSNERelationsChart, resetRelationsSelection } from "{% static 'js/tsneChartRelations.js' %}?v=20260603g";
+  import { initWorkspaceAggregateChart, resetWorkspaceAggregateExpansion } from "{% static 'js/workspaceAggregateChart.js' %}?v=20260603d";
+  import { initWorkspaceRelationsChart, resetWorkspaceRelationsSelection } from "{% static 'js/workspaceRelationsChart.js' %}?v=20260603f";
+  import { renderText }                                  from "{% static 'js/textPanel.js' %}?v=20260501c";
   import { listWorkspaces, getWorkspace, createWorkspace, updateWorkspaceArticles, processWorkspace, deleteWorkspace } from "{% static 'js/workspaceApi.js' %}?v=20260401";
   import {
     getCachedArticleView,
@@ -556,6 +659,12 @@
   // ── Estado global ─────────────────────────────────────────────────────
   let currentChart   = null;
   let isUploadInProgress = false;
+  /** Encola/procesa workspace (distinto de subida/reproceso de artículo). */
+  let workspaceProcessingBusyDepth = 0;
+
+  function isAppProcessingBusy() {
+    return isUploadInProgress || workspaceProcessingBusyDepth > 0;
+  }
   let chartViewMode      = "standard";
   let baseChartViewMode  = "standard";
   let previousChartViewMode = "standard";
@@ -571,6 +680,39 @@
   let workspaceListState = [];
   let currentWorkspaceData = null;
   let currentWorkspaceRelationsPayload = null;
+  /** Cancela fetch previos para que una respuesta antigua no pise datos tras varios cambios seguidos. */
+  let workspaceChartFetchAbortController = null;
+
+  function abortWorkspaceChartFetch() {
+    try {
+      workspaceChartFetchAbortController?.abort();
+    } catch (_) {
+      /* ignore */
+    }
+    workspaceChartFetchAbortController = new AbortController();
+    return workspaceChartFetchAbortController.signal;
+  }
+
+  /** Fila «Mostrar» relaciones workspace: solo si el gráfico tiene nodos visibles. */
+  let workspaceRelationsHasRenderableNodes = true;
+  let chartChromeControlsVisible = true;
+
+  /** Valor del desplegable antes de abrirlo (para revertir si falla la carga). */
+  function syncSelectPrevDataset(selectEl) {
+    if (selectEl && selectEl.dataset.prevSelectValue === undefined) {
+      selectEl.dataset.prevSelectValue = selectEl.value || "";
+    }
+  }
+
+  function revertModelSelect(previousModelKey) {
+    currentModelKey = previousModelKey;
+    if (modelSelect) modelSelect.value = previousModelKey;
+  }
+
+  function revertArticleLoadFailure(previousModelKey, previousArticleValue, articleSelectEl) {
+    revertModelSelect(previousModelKey);
+    if (articleSelectEl) articleSelectEl.value = previousArticleValue ?? "";
+  }
 
   const panelState = {
     source: "example",
@@ -587,6 +729,7 @@
   const entitiesSummary        = document.getElementById("entities-summary");
   const mainContainer          = document.getElementById("container");
   const dataSourceEl           = document.getElementById("data-source");
+  const dataSourcePrefixEl     = document.getElementById("data-source-prefix");
   const dataSourceLabelEl      = document.getElementById("data-source-label");
   const btnEntitiesOnly        = document.getElementById("btn-entities-only");
   const btnAllParagraphs       = document.getElementById("btn-all-paragraphs");
@@ -600,15 +743,175 @@
   const chartRelationsHelp     = document.getElementById("chart-relations-help");
   const frequencyScaleControls = document.getElementById("frequency-scale-controls");
   const frequencyScaleSelect   = document.getElementById("frequency-scale-select");
+
+  function syncFrequencyScaleModeFromUi() {
+    if (!frequencyScaleSelect) return;
+    frequencyScaleMode = frequencyScaleSelect.value === "global" ? "global" : "article";
+  }
+
   const workspaceRelationsFilterControls = document.getElementById("workspace-relations-filter-controls");
   const workspaceRelationsFilterSelect = document.getElementById("workspace-relations-filter-select");
+  const workspaceRelationsScoreRange = document.getElementById("workspace-relations-score-range");
+  const workspaceRelationsScoreValue = document.getElementById("workspace-relations-score-value");
   const articleRelationsFilterControls = document.getElementById("article-relations-filter-controls");
   const articleRelationsFilterSelect = document.getElementById("article-relations-filter-select");
+  const articleRelationsScoreRange = document.getElementById("article-relations-score-range");
+  const articleRelationsScoreValue = document.getElementById("article-relations-score-value");
+
+  const LS_REL_MIN_ARTICLE = "ner_rel_min_article_v2";
+  const LS_REL_MIN_WS = "ner_rel_min_workspace_v2";
+
+  /** Mismo umbral inicial que usa la vista articulo (`tsneChartRelations`; tech / PatVet / ambos desde el mismo modelo cliente). */
+  const DEFAULT_ARTICLE_REL_SCORE = 0.16;
+
+  function clampSpan(x, lo, hi) {
+    const n = Number(x);
+    if (!Number.isFinite(n)) return lo;
+    return Math.min(hi, Math.max(lo, n));
+  }
+
+  function readStoredRelMin(key, fallback) {
+    try {
+      const v = parseFloat(localStorage.getItem(key));
+      return Number.isFinite(v) ? v : fallback;
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  /** Slider Exigencia (articulo). */
+  let articleRelationsMinScore = clampSpan(readStoredRelMin(LS_REL_MIN_ARTICLE, DEFAULT_ARTICLE_REL_SCORE), 0.05, 0.95);
+
+  /** Valor inicial de la barra articulo para el modelo/contexto actual. */
+  function getDefaultArticleRelationsMinScore() {
+    return DEFAULT_ARTICLE_REL_SCORE;
+  }
+
+  /** Workspace: minimo del slider acotado al umbral del servidor (mismo piso tech / PatVet / ambos). */
+  function defaultWorkspaceScoreFloor(payload) {
+    const m = 0.24;
+    const f = Number(payload?.score_threshold_used);
+    return Number.isFinite(f) ? f : m;
+  }
+
+  function syncWorkspaceRelationsScoreSlider(payload) {
+    if (!workspaceRelationsScoreRange || !workspaceRelationsScoreValue) return;
+    const floor = defaultWorkspaceScoreFloor(payload);
+    workspaceRelationsScoreRange.min = String(floor);
+    workspaceRelationsScoreRange.max = "0.995";
+    workspaceRelationsScoreRange.step = "0.005";
+    let v = readStoredRelMin(LS_REL_MIN_WS, floor);
+    v = clampSpan(v, floor, 0.995);
+    workspaceRelationsScoreRange.value = String(v);
+    workspaceRelationsScoreValue.textContent = v.toFixed(2);
+    try {
+      localStorage.setItem(LS_REL_MIN_WS, String(v));
+    } catch (_) {}
+  }
+
+  function readWorkspaceScoreFromUi(payload) {
+    const floor = defaultWorkspaceScoreFloor(payload);
+    if (!workspaceRelationsScoreRange) {
+      return clampSpan(readStoredRelMin(LS_REL_MIN_WS, floor), floor, 0.995);
+    }
+    return clampSpan(parseFloat(workspaceRelationsScoreRange.value), floor, 0.995);
+  }
+
+  function workspaceRelationsChartOpts(minScore) {
+    return {
+      filterMode: workspaceRelationsFilterMode,
+      combinedView: currentModelKey === "ambos",
+      minScore,
+      onRenderSummary: ({ visibleNodeCount, visibleEdgeCount }) => {
+        const vn = Number(visibleNodeCount || 0);
+        const ve = Number(visibleEdgeCount || 0);
+        currentWorkspaceVisibleEdgeCount = ve;
+        workspaceRelationsHasRenderableNodes = vn > 0;
+        if (vn < 1) {
+          setWorkspaceChartSummary("");
+        } else {
+          setWorkspaceChartSummary(
+            `Entidades: ${vn} · Ocurrencias: ${Number(currentWorkspaceRelationsPayload?.total_entity_occurrences || 0)} · Relaciones: ${ve}`
+          );
+        }
+        refreshWorkspaceRelationsFilterVisibility();
+      },
+    };
+  }
+
+  function initArticleRelationsScoreUi() {
+    if (!articleRelationsScoreRange || !articleRelationsScoreValue) return;
+    articleRelationsScoreRange.min = "0.05";
+    articleRelationsScoreRange.max = "0.95";
+    articleRelationsScoreRange.step = "0.01";
+    articleRelationsScoreRange.value = String(articleRelationsMinScore);
+    articleRelationsScoreValue.textContent = articleRelationsMinScore.toFixed(2);
+  }
+  initArticleRelationsScoreUi();
+
+  articleRelationsScoreRange?.addEventListener("input", () => {
+    if (!articleRelationsScoreRange || !articleRelationsScoreValue) return;
+    articleRelationsMinScore = clampSpan(parseFloat(articleRelationsScoreRange.value), 0.05, 0.95);
+    articleRelationsScoreValue.textContent = articleRelationsMinScore.toFixed(2);
+    try {
+      localStorage.setItem(LS_REL_MIN_ARTICLE, String(articleRelationsMinScore));
+    } catch (_) {}
+    if (currentScopeMode === "articles" && chartViewMode === "relations" && panelState?.data?.length) {
+      renderChartByMode(panelState.data);
+    }
+  });
+
+  document.getElementById("article-relations-score-reset")?.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    const d = clampSpan(getDefaultArticleRelationsMinScore(), 0.05, 0.95);
+    articleRelationsMinScore = d;
+    if (articleRelationsScoreRange) articleRelationsScoreRange.value = String(d);
+    if (articleRelationsScoreValue) articleRelationsScoreValue.textContent = d.toFixed(2);
+    try {
+      localStorage.setItem(LS_REL_MIN_ARTICLE, String(d));
+    } catch (_) {}
+    if (currentScopeMode === "articles" && chartViewMode === "relations" && panelState?.data?.length) {
+      renderChartByMode(panelState.data);
+    }
+  });
+
+  document.getElementById("workspace-relations-score-reset")?.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    const p = currentWorkspaceRelationsPayload;
+    if (!p || !workspaceRelationsScoreRange || !workspaceRelationsScoreValue || !currentChart) return;
+    const floor = defaultWorkspaceScoreFloor(p);
+    workspaceRelationsScoreRange.value = String(floor);
+    workspaceRelationsScoreValue.textContent = floor.toFixed(2);
+    try {
+      localStorage.setItem(LS_REL_MIN_WS, String(floor));
+    } catch (_) {}
+    if (currentScopeMode !== "workspaces" || currentWorkspaceChartMode !== "relations") return;
+    initWorkspaceRelationsChart(currentChart, p, workspaceRelationsChartOpts(readWorkspaceScoreFromUi(p)));
+    requestAnimationFrame(() => currentChart.resize());
+  });
+
+  workspaceRelationsScoreRange?.addEventListener("input", () => {
+    if (!workspaceRelationsScoreRange || !workspaceRelationsScoreValue || !currentWorkspaceRelationsPayload) return;
+    const floor = defaultWorkspaceScoreFloor(currentWorkspaceRelationsPayload);
+    const v = clampSpan(parseFloat(workspaceRelationsScoreRange.value), floor, 0.995);
+    workspaceRelationsScoreRange.value = String(v);
+    workspaceRelationsScoreValue.textContent = v.toFixed(2);
+    try {
+      localStorage.setItem(LS_REL_MIN_WS, String(v));
+    } catch (_) {}
+    if (currentScopeMode !== "workspaces" || currentWorkspaceChartMode !== "relations") return;
+    if (!currentChart || !currentWorkspaceRelationsPayload) return;
+    initWorkspaceRelationsChart(
+      currentChart,
+      currentWorkspaceRelationsPayload,
+      workspaceRelationsChartOpts(readWorkspaceScoreFromUi(currentWorkspaceRelationsPayload)),
+    );
+    requestAnimationFrame(() => currentChart.resize());
+  });
   const workspaceChartSummary = document.getElementById("workspace-chart-summary");
   const progressContainer      = document.getElementById("progress-container");
   const progressBar            = document.getElementById("progress-bar");
   const progressLabel          = document.getElementById("progress-label");
-  const entitiesInfo           = document.getElementById("entities-info");
   const progressClose          = document.getElementById("progress-close");
   const modelSelect            = document.getElementById("model-select");
   const chartPanelEl           = document.getElementById("chart-panel");
@@ -630,6 +933,11 @@
   const uploadArticleBtn       = document.getElementById("upload-article-btn");
   const fileInput              = document.getElementById("file-input");
   const loadingIndicator       = document.getElementById("loading");
+
+  syncSelectPrevDataset(articleSelect);
+  if (articleSelect) articleSelect.dataset.prevSelectValue = articleSelect.value || "";
+  syncSelectPrevDataset(workspaceArticleSelect);
+  if (workspaceArticleSelect) workspaceArticleSelect.dataset.prevSelectValue = workspaceArticleSelect.value || "";
 
   const workspaceCreateModal   = document.getElementById("modal-workspace-create");
   const workspaceNameInput     = document.getElementById("workspace-name-input");
@@ -738,10 +1046,13 @@
       btnAllParagraphs.classList.toggle("active", panelState.mode === "all");
       btnAllParagraphs.disabled = source !== "article";
     }
-    if (dataSourceLabelEl) {
-      dataSourceLabelEl.textContent = source === "article"
-        ? "Datos del art\u00EDculo"
-        : "Datos de ejemplo";
+    if (dataSourcePrefixEl && dataSourceLabelEl) {
+      if (source === "article") {
+        dataSourcePrefixEl.style.display = "none";
+      } else {
+        dataSourcePrefixEl.style.display = "";
+        dataSourceLabelEl.textContent = "Datos de ejemplo";
+      }
     }
   }
 
@@ -761,12 +1072,24 @@
     if (currentChart) requestAnimationFrame(() => currentChart.resize());
   }
 
+  function refreshWorkspaceRelationsFilterVisibility() {
+    const show =
+      chartChromeControlsVisible &&
+      currentScopeMode === "workspaces" &&
+      currentWorkspaceChartMode === "relations" &&
+      workspaceRelationsHasRenderableNodes;
+    if (workspaceRelationsFilterControls) {
+      workspaceRelationsFilterControls.style.display = show ? "flex" : "none";
+    }
+  }
+
   function setChartChromeVisible(visible) {
+    chartChromeControlsVisible = Boolean(visible);
     if (chartViewControls) chartViewControls.hidden = !visible;
     if (chartHelp) chartHelp.hidden = !visible;
     if (chartRelationsHelp) chartRelationsHelp.hidden = !visible || !(currentScopeMode === "workspaces" ? currentWorkspaceChartMode === "relations" : chartViewMode === "relations");
     if (frequencyScaleControls) frequencyScaleControls.style.display = visible && currentScopeMode === "articles" && chartViewMode === "frequency" ? "flex" : "none";
-    if (workspaceRelationsFilterControls) workspaceRelationsFilterControls.style.display = visible && currentScopeMode === "workspaces" && currentWorkspaceChartMode === "relations" ? "flex" : "none";
+    refreshWorkspaceRelationsFilterVisibility();
     if (articleRelationsFilterControls) articleRelationsFilterControls.style.display = visible && currentScopeMode === "articles" && chartViewMode === "relations" ? "flex" : "none";
     if (!visible) setWorkspaceChartSummary("");
   }
@@ -792,16 +1115,21 @@
     const totalParagraphs = typeof payload?.totalParagraphs === "number" ? payload.totalParagraphs : null;
     const articleTitle = payload?.articleTitle || null;
     const cleanedText = payload?.cleanedText || "";
+    globalFrequencyReferenceMax = Math.max(globalFrequencyReferenceMax, getMaxEntityFrequency(data));
 
-    const chartDom = document.getElementById("tsne-chart");
-    if (currentChart) currentChart.dispose();
-    chartDom.innerHTML = "";
-    currentChart = echarts.init(chartDom);
-    setChartChromeVisible(true);
+    const keepWorkspaceChart = currentScopeMode === "workspaces";
 
-    resetFrequencyExpansion();
-    resetRelationsSelection();
-    renderChartByMode(data);
+    if (!keepWorkspaceChart) {
+      const chartDom = document.getElementById("tsne-chart");
+      if (currentChart) currentChart.dispose();
+      chartDom.innerHTML = "";
+      currentChart = echarts.init(chartDom);
+      setChartChromeVisible(true);
+
+      resetFrequencyExpansion();
+      resetRelationsSelection();
+      renderChartByMode(data);
+    }
 
     panelState.source = source;
     panelState.articleId = articleId;
@@ -812,10 +1140,12 @@
     panelState.cleanedText = cleanedText;
 
     renderCurrentTextPanel();
-    if (entitiesSummary) entitiesSummary.textContent = `Entidades: ${panelState.data.length}`;
+    if (!keepWorkspaceChart && entitiesSummary) {
+      entitiesSummary.textContent = `Entidades: ${panelState.data.length}`;
+    }
   }
 
-  function renderEmptyArticleState(message = "Selecciona un articulo para visualizar sus resultados.") {
+  function renderEmptyArticleState(message = "Selecciona un artículo para visualizar sus resultados.") {
     const chartDom = document.getElementById("tsne-chart");
     if (currentChart) currentChart.dispose();
     currentChart = null;
@@ -823,7 +1153,7 @@
     chartDom.innerHTML = `
       <div style="height:100%; display:flex; align-items:center; justify-content:center; padding:24px; color:#666; text-align:center;">
         <div>
-          <div style="font-size:16px; font-weight:600; margin-bottom:10px;">Sin articulo seleccionado</div>
+          <div style="font-size:16px; font-weight:600; margin-bottom:10px;">Sin artículo seleccionado</div>
           <div style="font-size:13px; line-height:1.7;">${message}</div>
         </div>
       </div>
@@ -839,7 +1169,7 @@
 
     textContentEl.innerHTML = `
       <div style="padding:24px 18px; text-align:center; color:#666;">
-        <div style="font-size:15px; font-weight:600; margin-bottom:8px;">Sin seleccion</div>
+        <div style="font-size:15px; font-weight:600; margin-bottom:8px;">Sin selección</div>
         <div style="font-size:13px; line-height:1.6;">${message}</div>
       </div>
     `;
@@ -848,7 +1178,7 @@
     setWorkspaceChartSummary("");
   }
 
-  function renderEmptyWorkspaceState(message = "Selecciona un workspace para explorar sus articulos.") {
+  function renderEmptyWorkspaceState(message = "Selecciona un workspace para explorar sus artículos.") {
     const chartDom = document.getElementById("tsne-chart");
     if (currentChart) currentChart.dispose();
     currentChart = null;
@@ -885,26 +1215,38 @@
   }
 
   async function loadWorkspaceAggregate(workspaceId, modelKey = currentModelKey, options = {}) {
+    const signal = abortWorkspaceChartFetch();
+    workspaceRelationsHasRenderableNodes = true;
+    resetWorkspaceAggregateExpansion();
+    resetWorkspaceRelationsSelection();
     currentWorkspaceRelationsPayload = null;
     const forceRefresh = Boolean(options.forceRefresh);
     let payload = forceRefresh ? null : getCachedWorkspaceAggregate(workspaceId, modelKey);
     if (!payload) {
-      const response = await fetch(config.workspaceAggregateUrl(workspaceId, modelKey), { cache: "no-store" });
-      payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error || "No se pudo cargar la grafica del workspace");
+      try {
+        const url = `${config.workspaceAggregateUrl(workspaceId, modelKey)}&_=${Date.now()}`;
+        const response = await fetch(url, { cache: "no-store", signal });
+        payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "No se pudo cargar la gráfica del workspace");
+        }
+        setCachedWorkspaceAggregate(workspaceId, modelKey, payload);
+      } catch (error) {
+        if (error?.name === "AbortError") return;
+        throw error;
       }
-      setCachedWorkspaceAggregate(workspaceId, modelKey, payload);
     }
 
     const points = Array.isArray(payload.points) ? payload.points : [];
     if (!points.length) {
+      workspaceRelationsHasRenderableNodes = false;
       if (!(await handleWorkspaceNoProcessedArticles(workspaceId, modelKey, payload))) return;
-      renderEmptyWorkspaceState(
-        payload.total_article_count > 0
-          ? "Este workspace aun no tiene articulos procesados para el modelo seleccionado."
-          : "Este workspace aun no tiene articulos."
-      );
+      const noArticles = "Este workspace aún no tiene artículos.";
+      const noForView =
+        modelKey === "ambos"
+          ? "Este workspace aún no tiene artículos con la vista combinada lista (hacen falta TechBERT y PatVetBERT por artículo)."
+          : "Este workspace aún no tiene artículos procesados para el modelo seleccionado.";
+      renderEmptyWorkspaceState(payload.total_article_count > 0 ? noForView : noArticles);
       return;
     }
 
@@ -914,9 +1256,15 @@
     currentChart = echarts.init(chartDom);
     setChartChromeVisible(true);
     resetFrequencyExpansion();
-    resetWorkspaceAggregateExpansion();
     resetRelationsSelection();
-    initWorkspaceAggregateChart(currentChart, payload);
+    initWorkspaceAggregateChart(currentChart, payload, {
+      combinedView: modelKey === "ambos",
+    });
+
+    requestAnimationFrame(() => {
+      if (currentChart) currentChart.resize();
+      requestAnimationFrame(() => currentChart?.resize?.());
+    });
 
     panelState.source = "article";
     panelState.articleId = null;
@@ -934,26 +1282,38 @@
   }
 
   async function loadWorkspaceRelations(workspaceId, modelKey = currentModelKey, options = {}) {
+    const signal = abortWorkspaceChartFetch();
+    workspaceRelationsHasRenderableNodes = true;
+    resetWorkspaceRelationsSelection();
+    resetWorkspaceAggregateExpansion();
     const forceRefresh = Boolean(options.forceRefresh);
     let payload = forceRefresh ? null : getCachedWorkspaceRelations(workspaceId, modelKey);
     if (!payload) {
-      const response = await fetch(config.workspaceRelationsUrl(workspaceId, modelKey), { cache: "no-store" });
-      payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error || "No se pudo cargar la grafica de relaciones del workspace");
+      try {
+        const url = `${config.workspaceRelationsUrl(workspaceId, modelKey)}&_=${Date.now()}`;
+        const response = await fetch(url, { cache: "no-store", signal });
+        payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "No se pudo cargar la gráfica de relaciones del workspace");
+        }
+        setCachedWorkspaceRelations(workspaceId, modelKey, payload);
+      } catch (error) {
+        if (error?.name === "AbortError") return;
+        throw error;
       }
-      setCachedWorkspaceRelations(workspaceId, modelKey, payload);
     }
 
     const nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
     if (!nodes.length) {
       currentWorkspaceRelationsPayload = null;
+      workspaceRelationsHasRenderableNodes = false;
       if (!(await handleWorkspaceNoProcessedArticles(workspaceId, modelKey, payload))) return;
-      renderEmptyWorkspaceState(
-        payload.total_article_count > 0
-          ? "Este workspace aun no tiene articulos procesados para el modelo seleccionado."
-          : "Este workspace aun no tiene articulos."
-      );
+      const noArticles = "Este workspace aún no tiene artículos.";
+      const noForView =
+        modelKey === "ambos"
+          ? "Este workspace aún no tiene artículos con la vista combinada lista (hacen falta TechBERT y PatVetBERT por artículo)."
+          : "Este workspace aún no tiene artículos procesados para el modelo seleccionado.";
+      renderEmptyWorkspaceState(payload.total_article_count > 0 ? noForView : noArticles);
       return;
     }
 
@@ -965,14 +1325,13 @@
     currentWorkspaceRelationsPayload = payload;
     resetFrequencyExpansion();
     resetRelationsSelection();
-    initWorkspaceRelationsChart(currentChart, payload, {
-      filterMode: workspaceRelationsFilterMode,
-      onRenderSummary: ({ visibleEdgeCount }) => {
-        currentWorkspaceVisibleEdgeCount = Number(visibleEdgeCount || 0);
-        setWorkspaceChartSummary(
-          `Entidades: ${Number(payload.unique_entity_count || nodes.length || 0)} · Ocurrencias: ${Number(payload.total_entity_occurrences || 0)} · Relaciones: ${Number(visibleEdgeCount || 0)}`
-        );
-      },
+    syncWorkspaceRelationsScoreSlider(payload);
+    const wsScore = readWorkspaceScoreFromUi(payload);
+    initWorkspaceRelationsChart(currentChart, payload, workspaceRelationsChartOpts(wsScore));
+
+    requestAnimationFrame(() => {
+      if (currentChart) currentChart.resize();
+      requestAnimationFrame(() => currentChart?.resize?.());
     });
 
     panelState.source = "article";
@@ -987,15 +1346,21 @@
   }
 
   async function handleWorkspaceNoProcessedArticles(workspaceId, modelKey, payload) {
-    if (!payload || payload.total_article_count <= 0 || payload.processed_article_count > 0) {
+    const processedCount = Number(payload?.processed_article_count);
+    const hasProcessedCount = Number.isFinite(processedCount) && processedCount > 0;
+    if (!payload || payload.total_article_count <= 0 || hasProcessedCount) {
       return true;
     }
 
+    const isCombinedView = modelKey === "ambos";
     const conflictingJobs = getWorkspaceActiveJobsForOtherModels(currentWorkspaceData, modelKey);
     if (conflictingJobs.length > 0) {
       const activeModels = Array.from(new Set(conflictingJobs.map(item => item.model))).join(", ");
+      const tail = isCombinedView
+        ? "Espera a que terminen antes de cargar la vista combinada."
+        : `Espera a que terminen antes de procesar con "${modelKey}".`;
       renderEmptyWorkspaceState(
-        `Hay articulos de este workspace procesandose con otro modelo (${activeModels}). Espera a que terminen antes de lanzar "${modelKey}".`
+        `Hay artículos de este workspace procesándose con otro modelo (${activeModels}); ${tail}`
       );
       return false;
     }
@@ -1004,64 +1369,81 @@
     const queuedCount = Number(currentModelSummary.queued_or_processing || 0);
     if (queuedCount > 0) {
       renderEmptyWorkspaceState(
-        `Este workspace ya tiene ${queuedCount} articulo${queuedCount === 1 ? "" : "s"} en cola para procesar con el modelo seleccionado.`
+        isCombinedView
+          ? `Este workspace ya tiene ${queuedCount} artículo${queuedCount === 1 ? "" : "s"} en cola para un modelo base; hasta que termine no podrás ver la gráfica en vista combinada.`
+          : `Este workspace ya tiene ${queuedCount} artículo${queuedCount === 1 ? "" : "s"} en cola para procesar con el modelo seleccionado.`
       );
       return false;
     }
 
     renderEmptyWorkspaceState(
-      `Este workspace aun no tiene articulos procesados con el modelo "${modelKey}". Usa el boton "Procesar" si quieres encolarlos.`
+      isCombinedView
+        ? "Para la vista combinada cada artículo debe tener ya TechBERT y PatVetBERT. Aún no hay ninguno en esa situación: elige cada modelo en el desplegable y usa Procesar por separado."
+        : `Este workspace aún no tiene artículos procesados con el modelo "${modelKey}". Usa el botón "Procesar" si quieres procesarlos.`
     );
     return false;
   }
 
   async function processWorkspaceAndWait(workspaceId, modelKey) {
-    const result = await processWorkspace(workspaceId, modelKey);
-    const enqueued = Array.isArray(result.enqueued_article_ids) ? result.enqueued_article_ids.length : 0;
-    const skipped = Array.isArray(result.skipped) ? result.skipped.length : 0;
-    if (enqueued === 0 && skipped === 0) {
-      alert("No hubo articulos para procesar en este workspace.");
+    workspaceProcessingBusyDepth++;
+    updateScopeControls();
+    try {
+      const result = await processWorkspace(workspaceId, modelKey);
+      const enqueued = Array.isArray(result.enqueued_article_ids) ? result.enqueued_article_ids.length : 0;
+      const skipped = Array.isArray(result.skipped) ? result.skipped.length : 0;
+      if (enqueued === 0 && skipped === 0) {
+        alert("No hubo artículos para procesar en este workspace.");
+        return currentWorkspaceData;
+      }
+
+      if (enqueued > 0) {
+        progressBar.style.width = "20%";
+        progressLabel.textContent =
+          `Procesando workspace (${modelKey})... 0/${enqueued} · En espera de ejecución`;
+      }
+
+      const start = Date.now();
+      const timeoutMs = 1000 * 60 * 5;
+
+      while (Date.now() - start < timeoutMs) {
+        await new Promise(resolve => setTimeout(resolve, 2500));
+        const resultWorkspace = await getWorkspace(workspaceId);
+        const workspace = resultWorkspace.workspace || null;
+        if (!workspace) break;
+        currentWorkspaceData = workspace;
+
+        const summary = workspace.model_summary?.[modelKey] || {};
+        const processed = Number(summary.processed || 0);
+        const queuedOrProcessing = Number(summary.queued_or_processing || 0);
+        const missing = Number(summary.missing || 0);
+        const total = processed + queuedOrProcessing + missing + Number(summary.failed || 0);
+
+        if (total > 0) {
+          const progressValue = Math.min(95, Math.max(20, Math.round((processed / total) * 90)));
+          progressBar.style.width = `${progressValue}%`;
+          const waiting = Math.max(0, queuedOrProcessing + missing);
+          const tail = waiting > 0
+            ? ` · Pendientes: ${waiting}`
+            : " · Últimos pasos…";
+          progressLabel.textContent = `Procesando workspace (${modelKey})... ${processed}/${total}${tail}`;
+        }
+
+        if (queuedOrProcessing === 0 && missing === 0) {
+          progressBar.style.width = "100%";
+          progressLabel.textContent =
+            `Workspace (${modelKey}) completado · todos los artículos quedaron procesados para este modelo`;
+          break;
+        }
+      }
+
+      await invalidateWorkspaceView(workspaceId, modelKey);
+      await refreshWorkspaceList(workspaceId);
+      await loadWorkspace(workspaceId, { forceRefresh: true });
       return currentWorkspaceData;
+    } finally {
+      workspaceProcessingBusyDepth--;
+      updateScopeControls();
     }
-
-    if (enqueued > 0) {
-      progressBar.style.width = "20%";
-      progressLabel.textContent = `Workspace encolado en ${modelKey}: ${enqueued} articulo${enqueued === 1 ? "" : "s"}.`;
-    }
-
-    const start = Date.now();
-    const timeoutMs = 1000 * 60 * 5;
-
-    while (Date.now() - start < timeoutMs) {
-      await new Promise(resolve => setTimeout(resolve, 2500));
-      const resultWorkspace = await getWorkspace(workspaceId);
-      const workspace = resultWorkspace.workspace || null;
-      if (!workspace) break;
-      currentWorkspaceData = workspace;
-
-      const summary = workspace.model_summary?.[modelKey] || {};
-      const processed = Number(summary.processed || 0);
-      const queuedOrProcessing = Number(summary.queued_or_processing || 0);
-      const missing = Number(summary.missing || 0);
-      const total = processed + queuedOrProcessing + missing + Number(summary.failed || 0);
-
-      if (total > 0) {
-        const progressValue = Math.min(95, Math.max(20, Math.round((processed / total) * 90)));
-        progressBar.style.width = `${progressValue}%`;
-        progressLabel.textContent = `Procesando workspace ${modelKey}: ${processed}/${total} procesados`;
-      }
-
-      if (queuedOrProcessing === 0 && missing === 0) {
-        progressBar.style.width = "100%";
-        progressLabel.textContent = `Workspace ${modelKey} procesado.`;
-        break;
-      }
-    }
-
-    await invalidateWorkspaceView(workspaceId, modelKey);
-    await refreshWorkspaceList(workspaceId);
-    await loadWorkspace(workspaceId);
-    return currentWorkspaceData;
   }
 
   function getWorkspaceActiveJobsForOtherModels(workspace, modelKey) {
@@ -1175,22 +1557,11 @@
     }
   }
 
-  function getCurrentAxisRange(chart) {
-    if (!chart || typeof chart.getModel !== "function") return null;
-    try {
-      const model = chart.getModel();
-      const xAxis = model.getComponent("xAxis", 0)?.axis;
-      const yAxis = model.getComponent("yAxis", 0)?.axis;
-      if (!xAxis || !yAxis) return null;
-      const [xMin, xMax] = xAxis.scale.getExtent();
-      const [yMin, yMax] = yAxis.scale.getExtent();
-      if (![xMin, xMax, yMin, yMax].every(Number.isFinite)) return null;
-      return { xMin, xMax, yMin, yMax };
-    } catch (_) { return null; }
-  }
-
-  function renderChartByMode(data, axisRange = null) {
+  function renderChartByMode(data) {
     if (!currentChart) return;
+
+    /** Igual que tech / PatVet: sin rango artificial; ECharts escala al bbox de datos. */
+    const axisRange = null;
     
     // Limpiar gráfico completamente antes de cambiar de vista para evitar estado residual
     currentChart.clear();
@@ -1201,9 +1572,10 @@
         minEntityFrequency: 1,
         topEntities: 40,
         minSentenceCooccurrence: 1,
-        scoreThreshold: 0.16,
+        scoreThreshold: articleRelationsMinScore,
         maxEdges: 120,
         filterMode: articleRelationsFilterMode,
+        combinedView: currentModelKey === "ambos",
         onRenderSummary: ({ visibleNodeCount, visibleEdgeCount }) => {
           setWorkspaceChartSummary(
             `Entidades: ${Number(visibleNodeCount || 0)} · Ocurrencias: ${Number(Array.isArray(data) ? data.length : 0)} · Relaciones: ${Number(visibleEdgeCount || 0)}`
@@ -1214,26 +1586,36 @@
     }
     if (chartViewMode === "frequency") {
       resetRelationsSelection();
+      syncFrequencyScaleModeFromUi();
+      const articleFreqMax = getMaxEntityFrequency(data);
+      globalFrequencyReferenceMax = Math.max(globalFrequencyReferenceMax, articleFreqMax);
       setWorkspaceChartSummary(
         `Entidades: ${Number(getUniqueEntityCount(data) || 0)} · Ocurrencias: ${Number(Array.isArray(data) ? data.length : 0)}`
       );
-      if (frequencyScaleMode === "global") {
-        globalFrequencyReferenceMax = Math.max(globalFrequencyReferenceMax, getMaxEntityFrequency(data));
-      }
       initTSNEFrequencyChart(currentChart, data, axisRange, {
         scaleMode: frequencyScaleMode,
         globalReferenceMax: Math.max(2, globalFrequencyReferenceMax),
+        combinedView: currentModelKey === "ambos",
       });
       return;
     }
     resetRelationsSelection();
     setWorkspaceChartSummary("");
-    initTSNEChart(currentChart, data, axisRange);
+    initTSNEChart(currentChart, data, axisRange, {
+      combinedView: currentModelKey === "ambos",
+    });
   }
 
   // ── Progreso ──────────────────────────────────────────────────────────
   function showProgress(label = "Procesando...") {
     progressContainer.style.display = "block";
+    const manageOpen = workspaceManageModal && workspaceManageModal.style.display === "flex";
+    const createOpen = workspaceCreateModal && workspaceCreateModal.style.display === "flex";
+    const processModalOpen = (() => {
+      const el = document.getElementById("modal-process-model");
+      return el && el.style.display === "flex";
+    })();
+    progressContainer.style.zIndex = manageOpen || createOpen || processModalOpen ? "220" : "9";
     if (mainContainer) mainContainer.style.marginTop = "112px";
     progressBar.style.width = "10%";
     progressLabel.textContent = label;
@@ -1242,10 +1624,10 @@
 
   function hideProgress() {
     progressContainer.style.display = "none";
+    progressContainer.style.zIndex = "9";
     if (mainContainer) mainContainer.style.marginTop = "70px";
     progressBar.style.width = "0%";
     progressLabel.textContent = "";
-    if (entitiesInfo) entitiesInfo.textContent = "";
     if (currentChart) requestAnimationFrame(() => currentChart.resize());
   }
 
@@ -1255,18 +1637,183 @@
   // ── Estado del modal ──────────────────────────────────────────────────
   let _pendingModalArticleId = null;
   let _pendingModalModel     = null;
-
+  /** Si es true, «Procesar ahora» encola todo el workspace para ese modelo base (tech/cmt). */
+  let _pendingModalWorkspaceBatch = false;
   const modalEl         = document.getElementById("modal-process-model");
   const modalMsg        = document.getElementById("modal-process-msg");
   const modalProcessBtn = document.getElementById("modal-process-btn");
   const modalCancelBtn  = document.getElementById("modal-cancel-btn");
+  const modalTitleEl    = modalEl?.querySelector("h3");
+
+  function baseModelDisplayName(key) {
+    if (key === "tech") return "TechBERT";
+    if (key === "cmt") return "PatVetBERT";
+    return key;
+  }
+
+  function resetModalProcessUi() {
+    _pendingModalWorkspaceBatch = false;
+    if (modalProcessBtn) {
+      modalProcessBtn.style.display = "";
+      modalProcessBtn.disabled = false;
+      modalProcessBtn.title = "";
+    }
+    if (modalCancelBtn) modalCancelBtn.textContent = "Cancelar";
+    if (modalTitleEl) modalTitleEl.textContent = "Resultados no disponibles";
+  }
+
+  /** Solo conflicto entre modelos base (cola/proceso de otro modelo); usado en botones del modal Gestionar. */
+  function workspaceModelConflictBlocked(modelKey) {
+    if (!modelKey || modelKey === "ambos") {
+      return { blocked: false, reason: "" };
+    }
+    const w = currentWorkspaceData;
+    if (!w) return { blocked: false, reason: "" };
+    const conflicts = getWorkspaceActiveJobsForOtherModels(w, modelKey);
+    if (conflicts.length) {
+      const activeModels = Array.from(new Set(conflicts.map((item) => item.model))).join(", ");
+      return {
+        blocked: true,
+        reason: `Hay artículos en cola o procesándose con otro modelo (${activeModels}). Espera a que terminen antes de usar ${modelKey}.`,
+      };
+    }
+    return { blocked: false, reason: "" };
+  }
+
+  /** Modal «Procesar ahora» y flujos globales: también bloquea si hay carga o reproceso en curso. */
+  function workspaceProcessBlockedForModel(modelKey) {
+    if (!modelKey || modelKey === "ambos") {
+      return { blocked: false, reason: "" };
+    }
+    if (isAppProcessingBusy()) {
+      return { blocked: true, reason: "Espera a que termine el procesamiento en curso." };
+    }
+    return workspaceModelConflictBlocked(modelKey);
+  }
+
+  function workspaceBatchProcessButtonLabel(modelKey, pendingCount) {
+    const name = baseModelDisplayName(modelKey);
+    const n = Number(pendingCount) || 0;
+    if (n < 1) return `Procesar con ${name}`;
+    const pend = n === 1 ? "1 pendiente" : `${n} pendientes`;
+    return `Procesar con ${name} · ${pend}`;
+  }
+
+  /** Botones por lote en Gestionar: bloqueo por conflicto de modelo o sin pendientes (no usa isUploadInProgress). */
+  function applyWorkspaceEnqueueGuard(btn, modelKey) {
+    if (!btn || !modelKey || modelKey === "ambos") return;
+    btn.disabled = false;
+    btn.title = "";
+    if (isAppProcessingBusy()) {
+      btn.disabled = true;
+      btn.title = "Espera a que termine el procesamiento en curso.";
+      return;
+    }
+    const pending = Number(btn.getAttribute("data-pending-count") || "0");
+    if (pending < 1) {
+      btn.disabled = true;
+      btn.title = "No hay artículos pendientes con este modelo en el workspace.";
+      return;
+    }
+    const b = workspaceModelConflictBlocked(modelKey);
+    if (b.blocked) {
+      btn.disabled = true;
+      btn.title = b.reason;
+    }
+  }
+
+  function refreshWorkspaceManageModalEnqueueGuards() {
+    if (!workspaceManageModal || workspaceManageModal.style.display !== "flex") return;
+    workspaceManageModal.querySelectorAll("[data-workspace-enqueue]").forEach((el) => {
+      const mk = el.getAttribute("data-workspace-enqueue");
+      if (mk) applyWorkspaceEnqueueGuard(el, mk);
+    });
+    const busy = isAppProcessingBusy();
+    workspaceManageModal.querySelectorAll("[data-workspace-row-process]").forEach((btn) => {
+      if (busy) {
+        btn.disabled = true;
+        btn.title = "Espera a que termine el procesamiento en curso.";
+      } else {
+        btn.disabled = false;
+        btn.title = "";
+      }
+    });
+  }
+
+  /** Deshabilita «Procesar ahora» si hay carga/reproceso en curso u otro modelo trabajando en el workspace. */
+  function syncModalProcessAvailability() {
+    if (!modalProcessBtn) return;
+    let disabled = isAppProcessingBusy();
+    let title = disabled ? "Espera a que termine el procesamiento en curso." : "";
+    if (!disabled && _pendingModalModel && _pendingModalModel !== "ambos") {
+      const b = workspaceProcessBlockedForModel(_pendingModalModel);
+      if (b.blocked) {
+        disabled = true;
+        title = b.reason;
+      }
+    }
+    modalProcessBtn.disabled = disabled;
+    modalProcessBtn.title = title || "";
+  }
+
+  function syncModalProcessAvailabilityIfOpen() {
+    if (!modalEl || modalEl.style.display !== "flex") return;
+    syncModalProcessAvailability();
+  }
+
+  /**
+   * Vista combinada: mismo texto que el modal estándar; el backend encola el primer modelo base que falta (tech/cmt).
+   */
+  function showAmbosCombinedMissingModal(articleId, articleName, missingModels) {
+    resetModalProcessUi();
+    const missing = Array.isArray(missingModels) ? missingModels.filter(Boolean) : [];
+    const targetModel = missing.length ? missing[0] : "tech";
+    const label = baseModelDisplayName(targetModel);
+    _pendingModalArticleId = articleId;
+    _pendingModalModel     = targetModel;
+    modalMsg.textContent =
+      `El artículo "${articleName || articleId}" aún no fue procesado con el modelo "${label}". ¿Deseas procesarlo ahora?`;
+    syncModalProcessAvailability();
+    if (modalEl) modalEl.style.display = "flex";
+  }
 
   function showModelModal(articleId, modelKey, articleName) {
+    if (modelKey === "ambos") {
+      showAmbosCombinedMissingModal(articleId, articleName || articleId, ["tech", "cmt"]);
+      return;
+    }
+    resetModalProcessUi();
     _pendingModalArticleId = articleId;
     _pendingModalModel     = modelKey;
     const modelLabel = modelSelect.options[modelSelect.selectedIndex]?.text || modelKey;
     modalMsg.textContent = `El artículo "${articleName || articleId}" aún no fue procesado con el modelo "${modelLabel}". ¿Deseas procesarlo ahora?`;
-    modalEl.style.display = "flex";
+    syncModalProcessAvailability();
+    if (modalEl) modalEl.style.display = "flex";
+  }
+
+  /** Modo workspace + modelo base: el servidor encola todos los pendientes; no solo el artículo del selector. */
+  function showWorkspaceMissingModelModal(articleId, modelKey, articleName) {
+    if (modelKey === "ambos") {
+      showAmbosCombinedMissingModal(articleId, articleName || articleId, ["tech", "cmt"]);
+      return;
+    }
+    resetModalProcessUi();
+    _pendingModalWorkspaceBatch = true;
+    _pendingModalArticleId = articleId;
+    _pendingModalModel = modelKey;
+    const modelLabel = modelSelect.options[modelSelect.selectedIndex]?.text || modelKey;
+    const pending = countArticlesPendingBaseModel(currentWorkspaceData?.articles || [], modelKey);
+    if (pending > 1) {
+      modalMsg.textContent =
+        `Hay ${pending} artículos en este workspace pendientes de procesar con "${modelLabel}" ` +
+        `(entre ellos "${articleName || articleId}"). ¿Encolar el procesamiento de todos ahora?`;
+    } else {
+      modalMsg.textContent =
+        `El artículo "${articleName || articleId}" aún no fue procesado con "${modelLabel}". ` +
+        `¿Encolar el procesamiento en el workspace?`;
+    }
+    syncModalProcessAvailability();
+    if (modalEl) modalEl.style.display = "flex";
   }
 
   if (modalCancelBtn) {
@@ -1274,24 +1821,107 @@
       if (modalEl) modalEl.style.display = "none";
       _pendingModalArticleId = null;
       _pendingModalModel     = null;
+      _pendingModalWorkspaceBatch = false;
+      resetModalProcessUi();
     });
   }
 
   if (modalProcessBtn) {
     modalProcessBtn.addEventListener("click", async () => {
+      if (isAppProcessingBusy() || modalProcessBtn.disabled) return;
       if (modalEl) modalEl.style.display = "none";
-      if (!_pendingModalArticleId || !_pendingModalModel) return;
-      await reprocessArticleWithModel(_pendingModalArticleId, _pendingModalModel);
+      if (!_pendingModalModel) return;
+      const aid = _pendingModalArticleId;
+      const mk = _pendingModalModel;
+      const useWorkspaceBatch = _pendingModalWorkspaceBatch;
       _pendingModalArticleId = null;
-      _pendingModalModel     = null;
+      _pendingModalModel = null;
+      _pendingModalWorkspaceBatch = false;
+      resetModalProcessUi();
+
+      if (useWorkspaceBatch && currentWorkspaceId && mk !== "ambos") {
+        const b = workspaceProcessBlockedForModel(mk);
+        if (b.blocked) {
+          alert(b.reason);
+          return;
+        }
+        showProgress(`Procesando workspace (${mk})...`);
+        try {
+          await processWorkspaceAndWait(currentWorkspaceId, mk);
+          const wa = workspaceArticleSelect?.value || aid;
+          if (wa) {
+            await loadAndRenderData("article", wa, currentModelKey, { forceRefresh: true });
+          }
+        } catch (err) {
+          alert("Error al procesar el workspace: " + err.message);
+        } finally {
+          hideProgress();
+        }
+        return;
+      }
+
+      if (!aid) return;
+      await reprocessArticleWithModel(aid, mk);
     });
+  }
+
+  function countArticlesPendingBaseModel(articles, modelKey) {
+    if (!Array.isArray(articles) || !modelKey || modelKey === "ambos") return 0;
+    return articles.filter((a) => a.models?.[modelKey] === "missing" || a.models?.[modelKey] === "failed").length;
+  }
+
+  function missingBaseModelsForCombinedArticle(article) {
+    const m = article?.models || {};
+    const out = [];
+    if (m.tech !== "processed") out.push("tech");
+    if (m.cmt !== "processed") out.push("cmt");
+    return out;
+  }
+
+  function canOfferProcessFromWorkspaceRow(article, viewModelKey) {
+    if (!article?.exists) return false;
+    const m = article.models || {};
+    if (viewModelKey === "ambos") {
+      if (m.ambos === "processed") return false;
+      if (["queued", "processing"].includes(m.tech) || ["queued", "processing"].includes(m.cmt)) return false;
+      return missingBaseModelsForCombinedArticle(article).length > 0;
+    }
+    const st = m[viewModelKey];
+    if (st === "processed" || st === "queued" || st === "processing") return false;
+    return st === "missing" || st === "failed";
+  }
+
+  async function runWorkspaceBatchProcessFromManage(workspaceId, modelKey) {
+    if (!workspaceId || !modelKey || modelKey === "ambos") return;
+    const b = workspaceProcessBlockedForModel(modelKey);
+    if (b.blocked) {
+      alert(b.reason);
+      return;
+    }
+    showProgress(`Procesando workspace (${modelKey})...`);
+    try {
+      const workspace = await processWorkspaceAndWait(workspaceId, modelKey);
+      if (workspace) currentWorkspaceData = workspace;
+      if (workspaceManageModal && workspaceManageModal.style.display === "flex") {
+        await renderWorkspaceManageModal();
+      }
+      if (currentScopeMode === "workspaces" && currentWorkspaceId) {
+        await loadWorkspace(currentWorkspaceId, { forceRefresh: true });
+      }
+    } catch (err) {
+      alert("Error al procesar el workspace: " + err.message);
+    } finally {
+      hideProgress();
+    }
   }
 
   async function reprocessArticleWithModel(articleId, modelKey) {
     // Buscar el archivo original del artículo y re-enviarlo al backend
     // con el nuevo modelo. Para esto usamos el endpoint de re-proceso.
-    showProgress(`Procesando con modelo ${modelKey}...`);
+    showProgress(`Procesando con el modelo ${modelKey}...`);
     isUploadInProgress = true;
+    updateScopeControls();
+    if (fileInput) fileInput.disabled = true;
     try {
       const resp = await fetch(`/api/articles/${articleId}/reprocess`, {
         method: "POST",
@@ -1307,6 +1937,10 @@
       isUploadInProgress = false;
       hideProgress();
       alert("Error al reprocesar: " + err.message);
+    } finally {
+      isUploadInProgress = false;
+      if (fileInput) fileInput.disabled = false;
+      updateScopeControls();
     }
   }
 
@@ -1318,7 +1952,7 @@
         const cachedPayload = forceRefresh ? null : getCachedArticleView(articleId, modelKey);
         if (cachedPayload) {
           applyArticleViewPayload(source, articleId, cachedPayload);
-          return;
+          return true;
         }
 
         let data;
@@ -1336,8 +1970,27 @@
               artName = m?.article?.original_name || articleId;
             }
           } catch (_) {}
-          showModelModal(articleId, modelKey, artName);
-          return;
+
+          if (modelKey === "ambos") {
+            let body = {};
+            try {
+              body = await response.json();
+            } catch (_) {}
+            const missing = Array.isArray(body.missing_models) ? body.missing_models : [];
+            if (missing.length || response.status === 409) {
+              showAmbosCombinedMissingModal(articleId, artName, missing.length ? missing : ["tech", "cmt"]);
+            } else {
+              alert(body.error || "No se pudo cargar la vista combinada para este artículo.");
+            }
+            return false;
+          }
+
+          if (currentScopeMode === "workspaces" && currentWorkspaceId) {
+            showWorkspaceMissingModelModal(articleId, modelKey, artName);
+          } else {
+            showModelModal(articleId, modelKey, artName);
+          }
+          return false;
         }
 
         const result = await response.json();
@@ -1370,7 +2023,7 @@
         };
         setCachedArticleView(articleId, modelKey, payload);
         applyArticleViewPayload(source, articleId, payload);
-        return;
+        return true;
       }
 
       const result = await loadTSNEData(config.exampleUrl(modelKey));
@@ -1381,9 +2034,11 @@
         cleanedText: "",
       };
       applyArticleViewPayload(source, articleId, payload);
+      return true;
     } catch (error) {
-      console.error("Error cargando datos:", error);
+      console.error("Error al cargar datos:", error);
       alert("Error al cargar datos: " + error.message);
+      return false;
     }
   }
 
@@ -1393,31 +2048,32 @@
       if (!resp.ok) return "";
       const result = await resp.json();
       const select = document.getElementById("article-select");
-      const current = selectedId || select.value;
+      const currentRaw = selectedId != null && String(selectedId).trim() !== "" ? String(selectedId) : String(select.value || "");
       select.innerHTML = "";
       if (!Array.isArray(result.articles) || !result.articles.length) {
-        select.innerHTML = '<option value="">Aun no hay articulos cargados</option>';
+        select.innerHTML = '<option value="">Aún no hay artículos cargados</option>';
         select.value = "";
         return "";
       }
       const placeholder = document.createElement("option");
       placeholder.value = "";
-      placeholder.textContent = "Seleccionar articulo";
+      placeholder.textContent = "Seleccionar artículo";
       select.appendChild(placeholder);
       result.articles.forEach(article => {
         const opt = document.createElement("option");
-        opt.value = article.id;
+        opt.value = String(article.id ?? "");
         opt.textContent = `${article.original_name} (${article.status})`;
         select.appendChild(opt);
       });
-      if (current && result.articles.some(article => article.id === current)) {
-        select.value = current;
+      const idMatches = (a, b) => String(a ?? "") === String(b ?? "");
+      if (currentRaw && result.articles.some(article => idMatches(article.id, currentRaw))) {
+        select.value = currentRaw;
       } else {
         select.value = "";
       }
       return select.value || "";
     } catch (error) {
-      console.error("Error listando articulos:", error);
+      console.error("Error al listar artículos:", error);
       return "";
     }
   }
@@ -1434,9 +2090,8 @@
     const hasWorkspace = Boolean(currentWorkspaceId);
     const hasArticles = Number(currentWorkspaceData?.article_count || 0) > 0;
     if (workspaceManageBtn) workspaceManageBtn.disabled = !hasWorkspace;
-    if (workspaceProcessBtn) workspaceProcessBtn.disabled = !hasWorkspace || !hasArticles;
-    if (uploadArticleBtn && currentScopeMode === "workspaces") {
-      uploadArticleBtn.disabled = !hasWorkspace;
+    if (workspaceProcessBtn) {
+      workspaceProcessBtn.disabled = !hasWorkspace || !hasArticles || isAppProcessingBusy();
     }
     if (workspaceArticleControls) workspaceArticleControls.hidden = true;
   }
@@ -1451,20 +2106,28 @@
     if (workspaceNewBtn) workspaceNewBtn.hidden = !isWorkspaceMode;
     if (workspaceManageBtn) workspaceManageBtn.hidden = !isWorkspaceMode;
     if (workspaceProcessBtn) workspaceProcessBtn.hidden = !isWorkspaceMode;
-    if (uploadArticleBtn) uploadArticleBtn.textContent = isWorkspaceMode ? "Agregar Articulos" : "Cargar Articulo";
+    if (uploadArticleBtn) uploadArticleBtn.textContent = isWorkspaceMode ? "Agregar artículos" : "Cargar artículo";
     if (uploadArticleBtn) {
-      uploadArticleBtn.disabled = isWorkspaceMode ? !currentWorkspaceId : false;
+      const busy = isAppProcessingBusy();
+      uploadArticleBtn.disabled = isWorkspaceMode
+        ? (!currentWorkspaceId || busy)
+        : busy;
+    }
+    if (fileInput) {
+      fileInput.disabled = isAppProcessingBusy();
     }
     if (entitiesSummary) {
       entitiesSummary.style.display = isWorkspaceMode ? "none" : "";
     }
     updateWorkspaceButtonsState();
+    syncModalProcessAvailabilityIfOpen();
+    refreshWorkspaceManageModalEnqueueGuards();
   }
 
   function renderWorkspaceArticleOptions(workspace) {
     if (!workspaceArticleSelect) return;
     const currentValue = workspaceArticleSelect.value;
-    workspaceArticleSelect.innerHTML = '<option value="">Seleccionar articulo del workspace</option>';
+    workspaceArticleSelect.innerHTML = '<option value="">Seleccionar artículo del workspace</option>';
     const articles = Array.isArray(workspace?.articles)
       ? workspace.articles.filter(article => article?.exists && article?.status === "processed")
       : [];
@@ -1508,12 +2171,11 @@
       }
       updateWorkspaceButtonsState();
     } catch (error) {
-      console.error("Error cargando workspaces:", error);
+      console.error("Error al cargar workspaces:", error);
     }
   }
 
   async function loadWorkspace(workspaceId, options = {}) {
-    const forceRefresh = Boolean(options.forceRefresh);
     if (!workspaceId) {
       currentWorkspaceId = "";
       currentWorkspaceData = null;
@@ -1525,23 +2187,28 @@
       return;
     }
     try {
-      const workspace = !forceRefresh && currentWorkspaceData && currentWorkspaceId === workspaceId
-        ? currentWorkspaceData
-        : (await getWorkspace(workspaceId)).workspace || null;
+      // Siempre pedir el workspace al API: el caché local (currentWorkspaceData) queda
+      // desfasado al cambiar modelo / procesar / editar miembros y rompe handleWorkspaceNoProcessedArticles.
+      const workspace = (await getWorkspace(workspaceId)).workspace || null;
       currentWorkspaceId = workspaceId;
       currentWorkspaceData = workspace;
       renderWorkspaceArticleOptions(workspace);
+      syncSelectPrevDataset(workspaceArticleSelect);
+      if (workspaceArticleSelect) {
+        workspaceArticleSelect.dataset.prevSelectValue = workspaceArticleSelect.value || "";
+      }
       if (workspaceSelect) workspaceSelect.value = workspaceId;
       updateWorkspaceButtonsState();
       if (currentScopeMode !== "workspaces") return;
+      const chartOpts = { forceRefresh: Boolean(options.forceRefresh) };
       if (currentWorkspaceChartMode === "relations") {
-        await loadWorkspaceRelations(workspaceId, currentModelKey);
+        await loadWorkspaceRelations(workspaceId, currentModelKey, chartOpts);
       } else {
-        await loadWorkspaceAggregate(workspaceId, currentModelKey);
+        await loadWorkspaceAggregate(workspaceId, currentModelKey, chartOpts);
       }
     } catch (error) {
-      console.error("Error cargando workspace:", error);
-      alert("Error cargando workspace: " + error.message);
+      console.error("Error al cargar workspace:", error);
+      alert("Error al cargar el workspace: " + error.message);
     }
   }
 
@@ -1555,10 +2222,21 @@
     if (workspaceManageModal) workspaceManageModal.style.display = "none";
   }
 
-  function createWorkspaceArticleRow(article, actionLabel, actionHandler) {
+  /** Modal Gestionar: línea con todos los modelos base que falten (missing/failed), sin depender del selector. */
+  function workspaceArticleManagePendingLine(article) {
+    const m = article?.models || {};
+    const need = [];
+    if (m.tech === "missing" || m.tech === "failed") need.push("TechBERT");
+    if (m.cmt === "missing" || m.cmt === "failed") need.push("PatVetBERT");
+    if (!need.length) return null;
+    if (need.length === 1) return `Falta procesar ${need[0]}`;
+    return `Falta procesar ${need[0]} y ${need[1]}`;
+  }
+
+  function createWorkspaceArticleRow(article, actionLabel, actionHandler, listKind = null) {
     const row = document.createElement("div");
     row.style.display = "flex";
-    row.style.alignItems = "center";
+    row.style.alignItems = "flex-start";
     row.style.justifyContent = "space-between";
     row.style.gap = "12px";
     row.style.padding = "10px 12px";
@@ -1570,20 +2248,60 @@
     info.style.display = "flex";
     info.style.flexDirection = "column";
     info.style.gap = "4px";
+    info.style.flex = "1";
+    info.style.minWidth = "0";
 
     const title = document.createElement("span");
     title.textContent = article.original_name || article.id;
     title.style.fontSize = "13px";
     title.style.color = "#333";
+    title.style.wordBreak = "break-word";
 
     const meta = document.createElement("span");
-    const modelState = article.models?.[currentModelKey] || "sin datos";
-    meta.textContent = `Estado ${currentModelKey}: ${modelState}`;
     meta.style.fontSize = "11px";
     meta.style.color = "#777";
+    const pendingLine = workspaceArticleManagePendingLine(article);
+    if (pendingLine) meta.textContent = pendingLine;
+    else meta.style.display = "none";
 
     info.appendChild(title);
     info.appendChild(meta);
+
+    const actions = document.createElement("div");
+    actions.style.display = "flex";
+    actions.style.flexDirection = "column";
+    actions.style.gap = "6px";
+    actions.style.alignItems = "stretch";
+
+    if (listKind === "current" && canOfferProcessFromWorkspaceRow(article, currentModelKey)) {
+      const procBtn = document.createElement("button");
+      procBtn.type = "button";
+      procBtn.textContent = "Procesar…";
+      procBtn.className =
+        currentModelKey === "cmt"
+          ? "process-action-btn process-action-btn--cmt"
+          : "process-action-btn";
+      procBtn.style.padding = "6px 12px";
+      procBtn.style.fontSize = "12px";
+      procBtn.setAttribute("data-workspace-row-process", "1");
+      if (isAppProcessingBusy()) {
+        procBtn.disabled = true;
+        procBtn.title = "Espera a que termine el procesamiento en curso.";
+      }
+      procBtn.addEventListener("click", () => {
+        if (isAppProcessingBusy()) return;
+        if (currentModelKey === "ambos") {
+          showAmbosCombinedMissingModal(
+            article.id,
+            article.original_name || article.id,
+            missingBaseModelsForCombinedArticle(article),
+          );
+        } else {
+          showModelModal(article.id, currentModelKey, article.original_name || article.id);
+        }
+      });
+      actions.appendChild(procBtn);
+    }
 
     const button = document.createElement("button");
     button.type = "button";
@@ -1596,8 +2314,9 @@
     button.style.fontSize = "12px";
     button.addEventListener("click", actionHandler);
 
+    actions.appendChild(button);
     row.appendChild(info);
-    row.appendChild(button);
+    row.appendChild(actions);
     return row;
   }
 
@@ -1608,7 +2327,7 @@
     currentWorkspaceData = workspace;
 
     if (workspaceManageTitle) {
-      workspaceManageTitle.textContent = `Gestionar Workspace: ${workspace?.name || currentWorkspaceId}`;
+      workspaceManageTitle.textContent = `Gestionar workspace: ${workspace?.name || currentWorkspaceId}`;
     }
 
     const currentArticles = Array.isArray(workspace?.articles) ? workspace.articles.filter(article => article?.exists) : [];
@@ -1621,8 +2340,75 @@
     if (workspaceCurrentArticlesEl) {
       workspaceCurrentArticlesEl.innerHTML = "";
       if (!currentArticles.length) {
-        workspaceCurrentArticlesEl.innerHTML = '<div style="font-size:12px; color:#777;">No hay articulos en este workspace.</div>';
+        workspaceCurrentArticlesEl.innerHTML = '<div style="font-size:12px; color:#777;">No hay artículos en este workspace.</div>';
       } else {
+        const nTech = countArticlesPendingBaseModel(currentArticles, "tech");
+        const nCmt = countArticlesPendingBaseModel(currentArticles, "cmt");
+        if (currentModelKey === "tech" && nTech > 0) {
+          const bar = document.createElement("div");
+          bar.style.cssText =
+            "display:flex;justify-content:flex-end;align-items:center;padding:10px 12px;margin-bottom:10px;background:#f0f7ff;border:1px solid #b6d4fe;border-radius:8px;position:relative;z-index:1;";
+          const b = document.createElement("button");
+          b.type = "button";
+          b.textContent = workspaceBatchProcessButtonLabel("tech", nTech);
+          b.setAttribute("data-workspace-enqueue", "tech");
+          b.setAttribute("data-pending-count", String(nTech));
+          b.className = "process-action-btn";
+          b.style.padding = "7px 14px";
+          b.style.fontSize = "12px";
+          applyWorkspaceEnqueueGuard(b, "tech");
+          b.addEventListener("click", async () => {
+            if (b.disabled || nTech < 1) return;
+            await runWorkspaceBatchProcessFromManage(currentWorkspaceId, "tech");
+          });
+          bar.appendChild(b);
+          workspaceCurrentArticlesEl.appendChild(bar);
+        } else if (currentModelKey === "cmt" && nCmt > 0) {
+          const bar = document.createElement("div");
+          bar.style.cssText =
+            "display:flex;justify-content:flex-end;align-items:center;padding:10px 12px;margin-bottom:10px;background:#f3f0ff;border:1px solid #cfc4f7;border-radius:8px;position:relative;z-index:1;";
+          const b = document.createElement("button");
+          b.type = "button";
+          b.textContent = workspaceBatchProcessButtonLabel("cmt", nCmt);
+          b.setAttribute("data-workspace-enqueue", "cmt");
+          b.setAttribute("data-pending-count", String(nCmt));
+          b.className = "process-action-btn process-action-btn--cmt";
+          b.style.padding = "7px 14px";
+          b.style.fontSize = "12px";
+          applyWorkspaceEnqueueGuard(b, "cmt");
+          b.addEventListener("click", async () => {
+            if (b.disabled || nCmt < 1) return;
+            await runWorkspaceBatchProcessFromManage(currentWorkspaceId, "cmt");
+          });
+          bar.appendChild(b);
+          workspaceCurrentArticlesEl.appendChild(bar);
+        } else if (currentModelKey === "ambos" && currentArticles.length > 0 && (nTech > 0 || nCmt > 0)) {
+          const bar = document.createElement("div");
+          bar.style.cssText =
+            "display:flex;flex-wrap:wrap;gap:10px;justify-content:flex-end;align-items:center;padding:10px 12px;margin-bottom:10px;background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;position:relative;z-index:1;";
+          const addBatchBtn = (modelKey, n) => {
+            if (n < 1) return;
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.textContent = workspaceBatchProcessButtonLabel(modelKey, n);
+            btn.setAttribute("data-workspace-enqueue", modelKey);
+            btn.setAttribute("data-pending-count", String(n));
+            btn.className =
+              modelKey === "cmt" ? "process-action-btn process-action-btn--cmt" : "process-action-btn";
+            btn.style.padding = "7px 14px";
+            btn.style.fontSize = "12px";
+            applyWorkspaceEnqueueGuard(btn, modelKey);
+            btn.addEventListener("click", async () => {
+              if (btn.disabled || n < 1) return;
+              await runWorkspaceBatchProcessFromManage(currentWorkspaceId, modelKey);
+            });
+            bar.appendChild(btn);
+          };
+          addBatchBtn("tech", nTech);
+          addBatchBtn("cmt", nCmt);
+          if (bar.childNodes.length) workspaceCurrentArticlesEl.appendChild(bar);
+        }
+
         currentArticles.forEach(article => {
           workspaceCurrentArticlesEl.appendChild(createWorkspaceArticleRow(article, "Quitar", async () => {
             showProgress("Actualizando workspace...");
@@ -1630,14 +2416,14 @@
               await updateWorkspaceArticles(currentWorkspaceId, [article.id], "remove");
               invalidateWorkspaceView(currentWorkspaceId);
               await refreshWorkspaceList(currentWorkspaceId);
-              await loadWorkspace(currentWorkspaceId);
+              await loadWorkspace(currentWorkspaceId, { forceRefresh: true });
               await renderWorkspaceManageModal();
             } catch (error) {
-              alert("Error quitando articulo del workspace: " + error.message);
+              alert("Error al quitar el artículo del workspace: " + error.message);
             } finally {
               hideProgress();
             }
-          }));
+          }, "current"));
         });
       }
     }
@@ -1645,7 +2431,7 @@
     if (workspaceAvailableArticlesEl) {
       workspaceAvailableArticlesEl.innerHTML = "";
       if (!availableArticles.length) {
-        workspaceAvailableArticlesEl.innerHTML = '<div style="font-size:12px; color:#777;">No hay articulos disponibles para agregar.</div>';
+        workspaceAvailableArticlesEl.innerHTML = '<div style="font-size:12px; color:#777;">No hay artículos disponibles para agregar.</div>';
       } else {
         availableArticles.forEach(article => {
           workspaceAvailableArticlesEl.appendChild(createWorkspaceArticleRow({ ...article, models: {} }, "Agregar", async () => {
@@ -1654,10 +2440,10 @@
               await updateWorkspaceArticles(currentWorkspaceId, [article.id], "add");
               invalidateWorkspaceView(currentWorkspaceId);
               await refreshWorkspaceList(currentWorkspaceId);
-              await loadWorkspace(currentWorkspaceId);
+              await loadWorkspace(currentWorkspaceId, { forceRefresh: true });
               await renderWorkspaceManageModal();
             } catch (error) {
-              alert("Error agregando articulo al workspace: " + error.message);
+              alert("Error al agregar el artículo al workspace: " + error.message);
             } finally {
               hideProgress();
             }
@@ -1674,11 +2460,26 @@
 
   // ── Selector de modelo ────────────────────────────────────────────────
   modelSelect.addEventListener("change", async () => {
+    const previousModelKey = currentModelKey;
+    const previousWorkspaceArticle = workspaceArticleSelect?.value || "";
     currentModelKey = modelSelect.value;
     updateChartModeButton();
     if (currentScopeMode === "workspaces") {
       if (currentWorkspaceId) {
         await loadWorkspace(currentWorkspaceId, { forceRefresh: true });
+        const wa = workspaceArticleSelect?.value || "";
+        if (wa) {
+          const ok = await loadAndRenderData("article", wa, currentModelKey);
+          if (!ok) {
+            revertModelSelect(previousModelKey);
+            if (workspaceArticleSelect) {
+              workspaceArticleSelect.value = previousWorkspaceArticle;
+              workspaceArticleSelect.dataset.prevSelectValue = previousWorkspaceArticle;
+            }
+          } else if (workspaceArticleSelect) {
+            workspaceArticleSelect.dataset.prevSelectValue = workspaceArticleSelect.value || "";
+          }
+        }
       } else {
         renderEmptyWorkspaceState();
       }
@@ -1689,18 +2490,35 @@
       renderEmptyArticleState();
       return;
     }
-    await loadAndRenderData("article", articleId, currentModelKey);
+    const ok = await loadAndRenderData("article", articleId, currentModelKey);
+    if (!ok) {
+      revertModelSelect(previousModelKey);
+    } else if (articleSelect) {
+      articleSelect.dataset.prevSelectValue = articleSelect.value || "";
+    }
+  });
+
+  articleSelect?.addEventListener("focus", function () {
+    this.dataset.prevSelectValue = this.value || "";
   });
 
   // ── Selector de artículo ──────────────────────────────────────────────
   articleSelect.addEventListener("change", async (e) => {
     if (!isUploadInProgress) hideProgress();
+    const previousModelKey = currentModelKey;
+    const prevArticle = e.target.dataset.prevSelectValue ?? "";
     const value = e.target.value;
     if (!value) {
+      e.target.dataset.prevSelectValue = "";
       renderEmptyArticleState();
       return;
     }
-    await loadAndRenderData("article", value, currentModelKey);
+    const ok = await loadAndRenderData("article", value, currentModelKey);
+    if (!ok) {
+      revertArticleLoadFailure(previousModelKey, prevArticle, articleSelect);
+    } else {
+      e.target.dataset.prevSelectValue = value;
+    }
   });
 
   modeArticlesBtn?.addEventListener("click", async () => {
@@ -1717,7 +2535,8 @@
       applyArticleViewPayload("article", articleId, panelState);
       return;
     }
-    await loadAndRenderData("article", articleId, currentModelKey);
+    const ok = await loadAndRenderData("article", articleId, currentModelKey);
+    if (!ok) return;
   });
 
   modeWorkspacesBtn?.addEventListener("click", async () => {
@@ -1732,7 +2551,7 @@
       await refreshWorkspaceList(currentWorkspaceId);
     }
     if (currentWorkspaceId) {
-      await loadWorkspace(currentWorkspaceId);
+      await loadWorkspace(currentWorkspaceId, { forceRefresh: true });
     } else {
       renderEmptyWorkspaceState();
     }
@@ -1742,21 +2561,34 @@
     currentWorkspaceId = e.target.value || "";
     if (!currentWorkspaceId) {
       renderEmptyWorkspaceState();
+      updateScopeControls();
       return;
     }
-    await loadWorkspace(currentWorkspaceId);
+    await loadWorkspace(currentWorkspaceId, { forceRefresh: true });
+    updateScopeControls();
+  });
+
+  workspaceArticleSelect?.addEventListener("focus", function () {
+    this.dataset.prevSelectValue = this.value || "";
   });
 
   workspaceArticleSelect?.addEventListener("change", async (e) => {
+    const previousModelKey = currentModelKey;
+    const prevArticle = e.target.dataset.prevSelectValue ?? "";
     const articleId = e.target.value || "";
     if (!articleId) return;
-    await loadAndRenderData("article", articleId, currentModelKey);
+    const ok = await loadAndRenderData("article", articleId, currentModelKey);
+    if (!ok) {
+      revertArticleLoadFailure(previousModelKey, prevArticle, workspaceArticleSelect);
+    } else {
+      e.target.dataset.prevSelectValue = articleId;
+    }
   });
 
   workspaceViewArticlesBtn?.addEventListener("click", async () => {
     currentWorkspaceChartMode = "aggregate";
     updateChartModeButton();
-    if (currentWorkspaceId) await loadWorkspace(currentWorkspaceId);
+    if (currentWorkspaceId) await loadWorkspace(currentWorkspaceId, { forceRefresh: true });
   });
 
   workspaceNewBtn?.addEventListener("click", () => {
@@ -1779,9 +2611,9 @@
       invalidateWorkspaceView(currentWorkspaceId);
       await refreshWorkspaceList(currentWorkspaceId);
       updateScopeControls();
-      await loadWorkspace(currentWorkspaceId);
+      await loadWorkspace(currentWorkspaceId, { forceRefresh: true });
     } catch (error) {
-      alert("Error creando workspace: " + error.message);
+      alert("Error al crear el workspace: " + error.message);
     }
   });
 
@@ -1809,22 +2641,29 @@
         renderEmptyWorkspaceState();
       }
     } catch (error) {
-      alert("Error eliminando workspace: " + error.message);
+      alert("Error al eliminar el workspace: " + error.message);
     }
   });
 
   workspaceManageCloseBtn?.addEventListener("click", closeWorkspaceManageModal);
 
   workspaceProcessBtn?.addEventListener("click", async () => {
+    if (isAppProcessingBusy()) return;
     if (!currentWorkspaceId) return;
     if (!currentWorkspaceData || !Array.isArray(currentWorkspaceData.articles) || !currentWorkspaceData.articles.length) {
-      alert("Este workspace aun no tiene articulos. Agrega articulos primero.");
+      alert("Este workspace aún no tiene artículos. Agrega artículos primero.");
+      return;
+    }
+    if (currentModelKey === "ambos") {
+      alert(
+        "La vista combinada no se encola: elige TechBERT o PatVetBERT en el desplegable y usa Procesar para cada modelo base que falte."
+      );
       return;
     }
     const conflictingJobs = getWorkspaceActiveJobsForOtherModels(currentWorkspaceData, currentModelKey);
     if (conflictingJobs.length > 0) {
       const activeModels = Array.from(new Set(conflictingJobs.map(item => item.model))).join(", ");
-      alert(`Hay articulos de este workspace en cola o procesandose con otro modelo (${activeModels}). Espera a que terminen antes de procesar con ${currentModelKey}.`);
+      alert(`Hay artículos de este workspace en cola o procesándose con otro modelo (${activeModels}). Espera a que terminen antes de procesar con ${currentModelKey}.`);
       return;
     }
     showProgress("Procesando workspace...");
@@ -1834,7 +2673,7 @@
         currentWorkspaceData = workspace;
       }
     } catch (error) {
-      alert("Error procesando workspace: " + error.message);
+      alert("Error al procesar el workspace: " + error.message);
     } finally {
       hideProgress();
     }
@@ -1860,7 +2699,7 @@
       currentWorkspaceChartMode = "aggregate";
       updateChartModeButton();
       if (currentWorkspaceId) {
-        loadWorkspace(currentWorkspaceId);
+        loadWorkspace(currentWorkspaceId, { forceRefresh: true });
       } else {
         renderEmptyWorkspaceState();
       }
@@ -1872,8 +2711,7 @@
     if (currentChart && Array.isArray(panelState.data)) {
       resetFrequencyExpansion();
       resetRelationsSelection();
-      // No pasar axisRange para permitir que ECharts calcule automáticamente los límites
-      renderChartByMode(panelState.data, null);
+      renderChartByMode(panelState.data);
     }
   });
   chartFrequencyBtn?.addEventListener("click", () => {
@@ -1884,8 +2722,7 @@
     if (currentChart && Array.isArray(panelState.data)) {
       resetFrequencyExpansion();
       resetRelationsSelection();
-      // No pasar axisRange para permitir que ECharts calcule automáticamente los límites
-      renderChartByMode(panelState.data, null);
+      renderChartByMode(panelState.data);
     }
   });
   updateChartModeButton();
@@ -1896,7 +2733,7 @@
       currentWorkspaceChartMode = "relations";
       updateChartModeButton();
       if (currentWorkspaceId) {
-        loadWorkspace(currentWorkspaceId);
+        loadWorkspace(currentWorkspaceId, { forceRefresh: true });
       } else {
         renderEmptyWorkspaceState();
       }
@@ -1907,41 +2744,35 @@
     if (chartViewMode !== "relations") resetRelationsSelection();
     updateChartModeButton();
     if (currentChart && Array.isArray(panelState.data)) {
-      // No pasar axisRange para permitir que ECharts calcule automáticamente los límites
-      renderChartByMode(panelState.data, null);
+      renderChartByMode(panelState.data);
     }
   });
 
   frequencyScaleSelect?.addEventListener("change", () => {
-    frequencyScaleMode = frequencyScaleSelect.value === "global" ? "global" : "article";
+    syncFrequencyScaleModeFromUi();
     if (chartViewMode !== "frequency" || !currentChart || !Array.isArray(panelState.data)) return;
-    const axisRange = getCurrentAxisRange(currentChart);
-    renderChartByMode(panelState.data, axisRange);
+    // No leer ejes del chart: al encadenarlos el rango se iba estrechando; el rango sale solo de los datos.
+    renderChartByMode(panelState.data);
   });
 
-  workspaceRelationsFilterSelect?.addEventListener("change", () => {
+    workspaceRelationsFilterSelect?.addEventListener("change", () => {
     workspaceRelationsFilterMode = workspaceRelationsFilterSelect.value || "all";
     if (currentScopeMode !== "workspaces" || currentWorkspaceChartMode !== "relations") return;
     if (currentChart && currentWorkspaceRelationsPayload) {
       resetWorkspaceRelationsSelection();
-      initWorkspaceRelationsChart(currentChart, currentWorkspaceRelationsPayload, {
-        filterMode: workspaceRelationsFilterMode,
-        onRenderSummary: ({ visibleEdgeCount }) => {
-          const nodes = Array.isArray(currentWorkspaceRelationsPayload?.nodes) ? currentWorkspaceRelationsPayload.nodes : [];
-          currentWorkspaceVisibleEdgeCount = Number(visibleEdgeCount || 0);
-          setWorkspaceChartSummary(
-            `Entidades: ${Number(currentWorkspaceRelationsPayload?.unique_entity_count || nodes.length || 0)} · Ocurrencias: ${Number(currentWorkspaceRelationsPayload?.total_entity_occurrences || 0)} · Relaciones: ${Number(visibleEdgeCount || 0)}`
-          );
-        },
-      });
+      initWorkspaceRelationsChart(
+        currentChart,
+        currentWorkspaceRelationsPayload,
+        workspaceRelationsChartOpts(readWorkspaceScoreFromUi(currentWorkspaceRelationsPayload)),
+      );
     }
   });
 
   articleRelationsFilterSelect?.addEventListener("change", () => {
     articleRelationsFilterMode = articleRelationsFilterSelect.value || "all";
     if (currentScopeMode !== "articles" || chartViewMode !== "relations" || !currentChart || !Array.isArray(panelState.data)) return;
-    const axisRange = getCurrentAxisRange(currentChart);
-    renderChartByMode(panelState.data, axisRange);
+    // Sin congelar ejes: al cambiar el conjunto de nodos/aristas, min/max fijos recortaban la vista y las líneas parecían salirse.
+    renderChartByMode(panelState.data);
   });
 
   // ── Resizer ───────────────────────────────────────────────────────────
@@ -1966,23 +2797,31 @@
   // ── Upload de artículo ────────────────────────────────────────────────
   const uploadBtn = uploadArticleBtn;
 
-  uploadBtn.addEventListener("click", () => fileInput.click());
+  uploadBtn.addEventListener("click", () => {
+    if (isAppProcessingBusy()) return;
+    fileInput.click();
+  });
 
   fileInput.addEventListener("change", async (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
+    if (isAppProcessingBusy()) {
+      fileInput.value = "";
+      return;
+    }
     if (currentScopeMode === "workspaces" && !currentWorkspaceId) {
-      alert("Primero selecciona o crea un workspace antes de cargar articulos aqui.");
+      alert("Primero selecciona o crea un workspace antes de cargar artículos aquí.");
       fileInput.value = "";
       return;
     }
 
     window.scrollTo({ top: 0, behavior: "smooth" });
     isUploadInProgress = true;
-    uploadBtn.disabled = true;
+    updateScopeControls();
+    if (fileInput) fileInput.disabled = true;
     loadingIndicator.classList.add("active");
     loadingIndicator.textContent = "Procesando...";
-    showProgress(files.length > 1 ? `En cola... 0/${files.length}` : "En cola...");
+    showProgress(files.length > 1 ? `Procesando carga múltiple (0/${files.length})...` : "Iniciando procesamiento...");
 
     const formData = new FormData();
     files.forEach(file => formData.append("file", file));
@@ -2004,7 +2843,9 @@
         if (currentScopeMode === "workspaces" && currentWorkspaceId) {
           await refreshWorkspaceList(currentWorkspaceId);
         }
-        await pollArticleStatus(result.article.id, files[0].name);
+        await pollArticleStatus(result.article.id, files[0].name, {
+          focusArticleId: result.article.id,
+        });
       } else if (response.ok && Array.isArray(result.articles) && result.articles.length) {
         result.articles.forEach(article => {
           if (article?.id) invalidateArticleView(article.id, currentModelKey);
@@ -2020,19 +2861,27 @@
         const outcomes = [];
         for (let index = 0; index < result.articles.length; index += 1) {
           const article = result.articles[index];
-          const fileName = article?.original_name || `articulo ${index + 1}`;
+          const fileName = article?.original_name || `artículo ${index + 1}`;
+          progressLabel.textContent = `Procesando carga múltiple (${index}/${result.articles.length})...`;
+          progressBar.style.width = `${Math.max(10, Math.round((index / result.articles.length) * 100))}%`;
+          const isLast = index === result.articles.length - 1;
+          // El primero debe pintarse en cuanto termina (lista vacía → algo visible); los intermedios no recargan para no parpadear.
+          const keepLoadedOnSuccess = index !== 0 && !isLast;
           const status = await pollArticleStatus(article.id, fileName, {
             suppressSuccessAlert: true,
-            progressPrefix: `Archivo ${index + 1}/${result.articles.length}`,
-            keepLoadedOnSuccess: index !== result.articles.length - 1,
+            silentProgress: true,
+            keepLoadedOnSuccess,
+            ...(isLast ? { focusArticleId: article.id } : {}),
           });
           outcomes.push(status);
+          progressLabel.textContent = `Procesando carga múltiple (${index + 1}/${result.articles.length})...`;
+          progressBar.style.width = `${Math.max(10, Math.round(((index + 1) / result.articles.length) * 100))}%`;
         }
 
         await refreshArticleList();
         if (currentScopeMode === "workspaces" && currentWorkspaceId) {
           await refreshWorkspaceList(currentWorkspaceId);
-          await loadWorkspace(currentWorkspaceId);
+          await loadWorkspace(currentWorkspaceId, { forceRefresh: true });
         }
         isUploadInProgress = false;
         hideProgress();
@@ -2041,21 +2890,23 @@
         const failedCount = outcomes.filter(status => status === "failed").length;
         const timeoutCount = outcomes.filter(status => status === "timeout").length;
         const rejectedCount = Array.isArray(result.rejected) ? result.rejected.length : 0;
-        alert(`Carga multiple completada: ${successCount} procesados, ${failedCount} fallidos, ${timeoutCount} pendientes, ${rejectedCount} rechazados.`);
+        alert(`Carga múltiple completada: ${successCount} procesados, ${failedCount} fallidos, ${timeoutCount} pendientes, ${rejectedCount} rechazados.`);
       } else {
         isUploadInProgress = false;
         hideProgress();
-        alert(`Error: ${result.error || "No se pudo procesar el art\u00EDculo"}`);
+        alert(`Error: ${result.error || "No se pudo procesar el artículo"}`);
       }
     } catch (error) {
       isUploadInProgress = false;
       hideProgress();
-      alert("Error al procesar art\u00EDculo: " + error.message);
+      alert("Error al procesar el artículo: " + error.message);
     } finally {
-      uploadBtn.disabled = false;
+      isUploadInProgress = false;
+      if (fileInput) fileInput.disabled = false;
       loadingIndicator.classList.remove("active");
       loadingIndicator.textContent = "";
       fileInput.value = "";
+      updateScopeControls();
     }
   });
 
@@ -2063,9 +2914,20 @@
   async function pollArticleStatus(articleId, fileName, options = {}) {
     const suppressSuccessAlert = Boolean(options.suppressSuccessAlert);
     const keepLoadedOnSuccess = Boolean(options.keepLoadedOnSuccess);
+    const silentProgress = Boolean(options.silentProgress);
+    const focusArticleId = options.focusArticleId != null && String(options.focusArticleId).trim() !== ""
+      ? String(options.focusArticleId)
+      : "";
     const progressPrefix = options.progressPrefix ? `${options.progressPrefix} · ` : "";
     const stageToProgress = {
-      queued: 10, processing: 30, ner: 60, tsne: 85, completed: 100, failed: 100,
+      queued: 10,
+      waiting_model_turn: 12,
+      loading_model: 18,
+      processing: 26,
+      ner: 60,
+      tsne: 85,
+      completed: 100,
+      failed: 100,
     };
     let attempts = 0;
 
@@ -2082,69 +2944,99 @@
           ? progress.percent
           : (stageToProgress[stage] || 50);
 
-        progressBar.style.width = `${percent}%`;
+        if (!silentProgress) {
+          progressBar.style.width = `${percent}%`;
+        }
 
         const stageLabel = {
-          completed: "Completado", failed: "Fall\u00F3",
-          queued: "En cola...", ner: "Extrayendo entidades (NER)...",
+          completed: "Completado",
+          failed: "Falló",
+          queued: "Esperando para iniciar...",
+          waiting_model_turn: "Esperando a que termine el procesamiento actual...",
+          loading_model: "Preparando modelo...",
+          processing: "Preparando el documento...",
+          ner: "Extrayendo entidades (NER)...",
           tsne: "Generando t-SNE...",
         }[stage] || "Procesando...";
 
-        const countPart = (typeof progress.processed === "number" && typeof progress.total === "number" && progress.total > 0)
-          ? ` ${progress.processed}/${progress.total}` : "";
-        const entsPart  = typeof progress.entities_extracted === "number"
-          ? ` \u00B7 entidades ${progress.entities_extracted}` : "";
-
-        progressLabel.textContent = `${progressPrefix}${stageLabel}${countPart}${entsPart}`;
-        if (entitiesInfo) {
-          entitiesInfo.textContent = (typeof progress.processed === "number" && progress.total > 0)
+        if (!silentProgress) {
+          const normalizedPrefix = progressPrefix ? `${progressPrefix}` : "";
+          const paragraphPart = (typeof progress.processed === "number" && progress.total > 0)
             ? `P\u00E1rrafos: ${progress.processed}/${progress.total}`
             : "";
-        }
-        if (entitiesSummary && typeof progress.entities_extracted === "number") {
-          entitiesSummary.textContent = `Entidades: ${progress.entities_extracted}`;
+          const entityPart = typeof progress.entities_extracted === "number"
+            ? `Entidades: ${progress.entities_extracted}`
+            : "";
+          const detailParts = [paragraphPart, entityPart].filter(Boolean);
+          progressLabel.textContent =
+            `${normalizedPrefix}${stageLabel}${detailParts.length ? " · " + detailParts.join(" · ") : ""}`;
+          if (entitiesSummary && typeof progress.entities_extracted === "number") {
+            entitiesSummary.textContent = `Entidades: ${progress.entities_extracted}`;
+          }
         }
 
         if (article.status === "processed") {
-          progressBar.style.width = "100%";
-          progressLabel.textContent = `${progressPrefix}Completado`;
-          await refreshArticleList(articleId);
-          if (currentScopeMode === "workspaces" && currentWorkspaceId) {
-            await refreshWorkspaceList(currentWorkspaceId);
-            await loadWorkspace(currentWorkspaceId);
-          } else if (articleSelect) {
-            articleSelect.value = articleId;
-          }
-          if (!keepLoadedOnSuccess && !(currentScopeMode === "workspaces" && currentWorkspaceId)) {
-            await loadAndRenderData("article", articleId, currentModelKey);
+          if (!silentProgress) {
+            progressBar.style.width = "100%";
+            progressLabel.textContent = `${progressPrefix}Completado`;
           }
           if (!suppressSuccessAlert) {
             isUploadInProgress = false;
             hideProgress();
-            alert(`Art\u00EDculo procesado correctamente: ${fileName}`);
+            updateScopeControls();
+          }
+          await refreshArticleList(articleId);
+          if (currentScopeMode === "workspaces" && currentWorkspaceId) {
+            await refreshWorkspaceList(currentWorkspaceId);
+            await loadWorkspace(currentWorkspaceId, { forceRefresh: true });
+            if (!keepLoadedOnSuccess) {
+              const idToShow = focusArticleId || (workspaceArticleSelect?.value === articleId ? articleId : "");
+              const sel = workspaceArticleSelect;
+              if (idToShow && sel && Array.from(sel.options).some(o => o.value === idToShow)) {
+                sel.value = idToShow;
+                await loadAndRenderData("article", idToShow, currentModelKey, { forceRefresh: true });
+              }
+            }
+          } else {
+            if (articleSelect) {
+              articleSelect.value = articleId;
+              articleSelect.dataset.prevSelectValue = articleId;
+            }
+            if (!keepLoadedOnSuccess) {
+              await loadAndRenderData("article", articleId, currentModelKey, { forceRefresh: true });
+            }
+          }
+          if (!suppressSuccessAlert) {
+            alert(`Artículo procesado correctamente: ${fileName}`);
           }
           return "processed";
         }
 
         if (article.status === "failed") {
-          if (currentScopeMode === "workspaces" && currentWorkspaceId) {
-            await refreshWorkspaceList(currentWorkspaceId);
-            await loadWorkspace(currentWorkspaceId);
-          }
           if (!suppressSuccessAlert) {
             isUploadInProgress = false;
             hideProgress();
+            updateScopeControls();
+          }
+          if (currentScopeMode === "workspaces" && currentWorkspaceId) {
+            await refreshWorkspaceList(currentWorkspaceId);
+            await loadWorkspace(currentWorkspaceId, { forceRefresh: true });
+          }
+          if (!suppressSuccessAlert) {
             alert(`Error al procesar: ${article.error || "Revisa la consola del servidor"}`);
           }
           return "failed";
         }
 
       } catch (error) {
-        console.error("Error consultando estado:", error);
+        console.error("Error al consultar el estado:", error);
       }
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
-    if (!suppressSuccessAlert && isUploadInProgress) hideProgress();
+    if (!suppressSuccessAlert) {
+      isUploadInProgress = false;
+      hideProgress();
+    }
     return "timeout";
   }
 </script>

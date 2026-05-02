@@ -10,29 +10,53 @@ import { getColorForLabel } from "./categoryColors.js";
 
 let entityMap = {};
 
+/**
+ * Agrupa ocurrencias por la frase exacta que usa cada modelo (sentence_text).
+ * Si solo se agrupa por sentence_id, la primera frase "gana" y los start/end de
+ * otro modelo (p. ej. PatVet con otra capitalización) dejan de coincidir: no se
+ * subraya al hacer hover en el gráfico.
+ */
+function clusterSentenceRecords(data) {
+  const sentences = new Map();
+  (Array.isArray(data) ? data : []).forEach(d => {
+    const sid = d.sentence_id;
+    const st = String(d.sentence_text ?? "");
+    const key = `${sid}\x1e${st}`;
+    if (!sentences.has(key)) {
+      sentences.set(key, {
+        sentence_id: sid,
+        text: st,
+        entities: [],
+      });
+    }
+    sentences.get(key).entities.push(d);
+  });
+  return Array.from(sentences.entries())
+    .sort(([ka], [kb]) => compareSentenceClusterKeys(ka, kb))
+    .map(([, v]) => v);
+}
+
+function compareSentenceClusterKeys(ka, kb) {
+  const [sa, ta] = String(ka).split("\x1e");
+  const [sb, tb] = String(kb).split("\x1e");
+  const na = Number(sa) - Number(sb);
+  if (Number.isFinite(na) && na !== 0) return na;
+  return String(ta).localeCompare(String(tb));
+}
+
 export function renderText(data, container, externalTitle = null, options = {}) {
   const mode = options.mode === "all" ? "all" : "entities";
   const cleanedText = typeof options.cleanedText === "string" ? options.cleanedText : "";
   container.innerHTML = "";
   entityMap = {};
   let titleRendered = false;
-
-  const sentences = new Map();
-
-  data.forEach(d => {
-    if (!sentences.has(d.sentence_id)) {
-      sentences.set(d.sentence_id, {
-        text: d.sentence_text,
-        entities: []
-      });
-    }
-    sentences.get(d.sentence_id).entities.push(d);
-    entityMap[d.id] = d;
-  });
-
   let titleSentence = null;
-  const sentenceList = Array.from(sentences.values());
+
+  const sentenceList = clusterSentenceRecords(data);
   sentenceList.forEach(sentence => {
+    (sentence.entities || []).forEach(ent => {
+      entityMap[ent.id] = ent;
+    });
     const text = sentence.text || "";
     if (!titleSentence && /^TITLE:\s*/i.test(text.trim())) {
       titleSentence = sentence;
@@ -304,17 +328,8 @@ function sanitizeTitle(title) {
 }
 
 export function getEntityParagraphs(data, cleanedText = "") {
-  const sentences = new Map();
-  (Array.isArray(data) ? data : []).forEach(d => {
-    if (!sentences.has(d.sentence_id)) {
-      sentences.set(d.sentence_id, {
-        text: d.sentence_text,
-        entities: []
-      });
-    }
-    sentences.get(d.sentence_id).entities.push(d);
-  });
-  return buildEntityParagraphs(cleanedText, Array.from(sentences.values()));
+  const sentenceList = clusterSentenceRecords(data);
+  return buildEntityParagraphs(cleanedText, sentenceList);
 }
 
 function buildEntityParagraphs(cleanedText, sentenceList) {

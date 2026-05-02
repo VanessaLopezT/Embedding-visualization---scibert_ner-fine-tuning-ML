@@ -21,6 +21,7 @@ from django.conf import settings
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
+from .combined_results import canonical_model_key, is_combined_model, workspace_combined_occurrence_rows
 from .workspace_service import get_workspace_summary
 
 
@@ -30,6 +31,7 @@ WORKSPACES_DIR = DATA_DIR / "workspaces"
 
 
 def build_workspace_projection(workspace_id: str, model_key: str) -> dict:
+    model_key = canonical_model_key(model_key)
     summary = get_workspace_summary(workspace_id)
     article_name_map = {
         str(article.get("id")): str(article.get("original_name") or article.get("id"))
@@ -43,7 +45,7 @@ def build_workspace_projection(workspace_id: str, model_key: str) -> dict:
     ]
 
     cache_path = _workspace_projection_path(workspace_id, model_key)
-    signature = _build_signature(processed_articles, model_key)
+    signature = _build_signature(summary, processed_articles, model_key)
     cached = _read_cached_projection(cache_path)
     if cached and cached.get("signature") == signature:
         return cached
@@ -53,6 +55,34 @@ def build_workspace_projection(workspace_id: str, model_key: str) -> dict:
 
     for article in processed_articles:
         article_id = article["id"]
+        if is_combined_model(model_key):
+            rows = workspace_combined_occurrence_rows(article_id)
+            if not rows:
+                continue
+            processed_count += 1
+            for row in rows:
+                key = _normalize_entity(row.get("norm_entity") or "")
+                if not key:
+                    continue
+                vec = np.asarray(row["vector"], dtype=np.float64)
+                bucket = entity_buckets.setdefault(key, {
+                    "entity": str(row.get("entity_display") or key),
+                    "sum_embedding": np.zeros(vec.shape[0], dtype=np.float64),
+                    "count": 0,
+                    "labels": Counter(),
+                    "origins": Counter(),
+                    "article_ids": set(),
+                    "articles_occurrences": defaultdict(int),
+                })
+                bucket["sum_embedding"] += vec
+                bucket["count"] += 1
+                bucket["labels"][str(row.get("label") or "")] += 1
+                origin = str(row.get("origin") or "joint").strip().lower() or "joint"
+                bucket["origins"][origin] += 1
+                bucket["article_ids"].add(article_id)
+                bucket["articles_occurrences"][article_id] += 1
+            continue
+
         embeddings_path = ARTICLES_DIR / article_id / f"embeddings_{model_key}.npz"
         if not embeddings_path.exists():
             continue
@@ -67,7 +97,6 @@ def build_workspace_projection(workspace_id: str, model_key: str) -> dict:
             continue
 
         processed_count += 1
-        seen_in_article = set()
 
         for index, raw_text in enumerate(texts):
             entity = str(raw_text or "").strip()
@@ -89,9 +118,6 @@ def build_workspace_projection(workspace_id: str, model_key: str) -> dict:
             bucket["labels"][str(labels[index] or "")] += 1
             bucket["article_ids"].add(article_id)
             bucket["articles_occurrences"][article_id] += 1
-
-            if key not in seen_in_article:
-                seen_in_article.add(key)
 
     points = _project_entity_buckets(entity_buckets, article_name_map)
     total_entity_occurrences = int(sum(point.get("frequency", 0) for point in points))
@@ -123,12 +149,14 @@ def _project_entity_buckets(entity_buckets: dict[str, dict], article_name_map: d
         vectors.append(centroid)
 
     matrix = np.vstack(vectors).astype(np.float32)
-    coords = _reduce_to_2d(matrix)
+    coords = np.asarray(_reduce_to_2d(matrix), dtype=np.float64)
+    coords = _center_xy_coords(coords)
+    coords = _scale_xy_visual_extent(coords)
 
     points = []
     for (key, bucket, _), coord in zip(items, coords):
         article_ids = sorted(bucket["article_ids"])
-        points.append({
+        row = {
             "key": key,
             "entity": bucket["entity"],
             "label": _dominant_label(bucket["labels"]),
@@ -145,7 +173,11 @@ def _project_entity_buckets(entity_buckets: dict[str, dict], article_name_map: d
             ],
             "x": float(coord[0]),
             "y": float(coord[1]),
-        })
+        }
+        origins = bucket.get("origins")
+        if origins:
+            row["dominant_origin"] = _dominant_label(origins)
+        points.append(row)
 
     points.sort(key=lambda item: (-item["article_count"], -item["frequency"], item["entity"].lower()))
     return points
@@ -178,6 +210,26 @@ def _reduce_to_2d(matrix: np.ndarray) -> np.ndarray:
     return final.astype(np.float32)
 
 
+def _center_xy_coords(coords: np.ndarray) -> np.ndarray:
+    """Quita traslación arbitraria del embedding 2D para que la nube quede centrada al cambiar de modelo."""
+    arr = np.asarray(coords, dtype=np.float64)
+    if arr.size == 0:
+        return arr
+    arr = arr - arr.mean(axis=0)
+    return arr
+
+
+def _scale_xy_visual_extent(coords: np.ndarray, target_rms: float = 52.0) -> np.ndarray:
+    """Amplía la nube centrada (~zoom) para que ocupe mejor el lienzo sin cambiar la forma relativa."""
+    arr = np.asarray(coords, dtype=np.float64)
+    if arr.size == 0:
+        return arr
+    rms = float(np.sqrt(np.mean(arr ** 2)))
+    if rms < 1e-15:
+        return arr
+    return arr * (target_rms / rms)
+
+
 def _workspace_projection_path(workspace_id: str, model_key: str) -> Path:
     return WORKSPACES_DIR / workspace_id / f"aggregate_{model_key}.json"
 
@@ -196,11 +248,23 @@ def _write_cached_projection(path: Path, payload: dict):
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _build_signature(processed_articles: list[dict], model_key: str) -> str:
+def _build_signature(summary: dict, processed_articles: list[dict], model_key: str) -> str:
     digest = hashlib.sha256()
     digest.update(model_key.encode("utf-8"))
-    for article in processed_articles:
+    digest.update(b"|ws_proj_xy_center_scale_v2|")
+    digest.update(str(summary.get("updated_at") or "").encode("utf-8"))
+    digest.update(
+        "|".join(str(aid) for aid in (summary.get("article_ids") or [])).encode("utf-8"),
+    )
+    for article in sorted(processed_articles, key=lambda a: str(a.get("id") or "")):
         article_id = article["id"]
+        if is_combined_model(model_key):
+            tech_path = ARTICLES_DIR / article_id / "embeddings_tech.npz"
+            cmt_path = ARTICLES_DIR / article_id / "embeddings_cmt.npz"
+            tech_stamp = tech_path.stat().st_mtime_ns if tech_path.exists() else 0
+            cmt_stamp = cmt_path.stat().st_mtime_ns if cmt_path.exists() else 0
+            digest.update(f"{article_id}|{tech_stamp}|{cmt_stamp}|ambos_agg_concat_emb_v2".encode("utf-8"))
+            continue
         embeddings_path = ARTICLES_DIR / article_id / f"embeddings_{model_key}.npz"
         meta = f"{article_id}|{embeddings_path.stat().st_mtime_ns if embeddings_path.exists() else 0}"
         digest.update(meta.encode("utf-8"))

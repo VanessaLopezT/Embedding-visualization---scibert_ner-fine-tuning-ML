@@ -53,6 +53,42 @@ function _normalize(label) {
     .trim();
 }
 
+function _parseHex(hex) {
+  const h = String(hex || "").replace("#", "").trim();
+  if (h.length === 3) {
+    return [
+      parseInt(h[0] + h[0], 16),
+      parseInt(h[1] + h[1], 16),
+      parseInt(h[2] + h[2], 16),
+    ];
+  }
+  if (h.length === 6) {
+    return [
+      parseInt(h.slice(0, 2), 16),
+      parseInt(h.slice(2, 4), 16),
+      parseInt(h.slice(4, 6), 16),
+    ];
+  }
+  return [136, 136, 136];
+}
+
+function _rgbToHex(r, g, b) {
+  const clamp = (n) => Math.max(0, Math.min(255, Math.round(n)));
+  const x = (n) => clamp(n).toString(16).padStart(2, "0");
+  return `#${x(r)}${x(g)}${x(b)}`;
+}
+
+function _blendHex(a, b, t) {
+  const A = _parseHex(a);
+  const B = _parseHex(b);
+  const u = Math.max(0, Math.min(1, t));
+  return _rgbToHex(
+    A[0] + (B[0] - A[0]) * u,
+    A[1] + (B[1] - A[1]) * u,
+    A[2] + (B[2] - A[2]) * u
+  );
+}
+
 /**
  * Devuelve el color para una etiqueta dada.
  * Compatible con labels tech (mayúsculas) y CMT (con espacios y barras).
@@ -77,6 +113,43 @@ export function getColorForLabel(label) {
   }
 
   return "#888888";
+}
+
+/**
+ * Vista "Ambos": mismo círculo para todos; Tech y coincidencia ambos modelos
+ * usan el color fuerte de categoría; solo PatVet (cmt) se apaga mezclando
+ * hacia gris claro para menos saturación.
+ */
+export function ambosOriginFillColor(label, origin) {
+  const base = getColorForLabel(label);
+  const o = String(origin || "joint").toLowerCase();
+  if (o === "cmt") {
+    return _blendHex(base, "#eceff1", 0.58);
+  }
+  return base;
+}
+
+/**
+ * Color del icono de leyenda en vista "Ambos": mayoría de orígenes entre puntos de la serie.
+ */
+export function ambosSeriesLegendFill(label, originSamples) {
+  const list = Array.isArray(originSamples) ? originSamples : [];
+  const counts = { tech: 0, cmt: 0, joint: 0 };
+  for (const raw of list) {
+    const o = String(raw || "joint").toLowerCase();
+    if (o === "tech") counts.tech += 1;
+    else if (o === "cmt") counts.cmt += 1;
+    else counts.joint += 1;
+  }
+  let pick = "joint";
+  let best = -1;
+  for (const k of ["tech", "cmt", "joint"]) {
+    if (counts[k] > best) {
+      best = counts[k];
+      pick = k;
+    }
+  }
+  return ambosOriginFillColor(label, pick);
 }
 
 // Export del mapa completo para la leyenda del gráfico

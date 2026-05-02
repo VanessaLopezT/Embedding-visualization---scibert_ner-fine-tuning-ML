@@ -6,6 +6,18 @@ Usa solo resultados ya procesados por articulo/modelo:
 - aggregate_<model>.json para posiciones agregadas en 2D
 
 No vuelve a correr NER ni embeddings del modelo.
+
+Modo vista combinada (ambos):
+- Base del grafo = union disjunta por tipo de extremos: aristas del workspace solo-TechBERT
+  y solo-PatVetBERT (misma logica que model_key tech / cmt: coocurrencia por frase obligatoria).
+- Aristas Tech↔PatVetBERT contextuales: dominant_origin tech × cmt con coocurrencia de frase o,
+  si no hay frases comparables, solape fuerte de chunk entre modelos.
+- Aristas Tech↔PatVetBERT semanticas: similitud coseno entre centroides del embedding concatenado
+  tech+cmt (el mismo espacio que la proyeccion ambos), limitadas a entidades que comparten al menos
+  un articulo del workspace.
+
+El grafo combinado ya no usa el atajo «solo chunks» para pares mismo-modelo: chunk_key es
+compartido entre origenes y relacionaba casi todas las entidades del mismo parrafo.
 """
 
 from __future__ import annotations
@@ -16,8 +28,15 @@ import math
 from collections import Counter, defaultdict
 from pathlib import Path
 
+import numpy as np
 from django.conf import settings
 
+from .combined_results import (
+    canonical_model_key,
+    is_combined_model,
+    workspace_combined_occurrence_rows,
+    workspace_combined_points_for_relations,
+)
 from .workspace_projection import build_workspace_projection
 from .workspace_service import get_workspace_summary
 
@@ -34,8 +53,34 @@ DEFAULT_OPTIONS = {
     "max_edges": 120,
 }
 
+# Vista combinada: los sentence_id de tech y cmt no siempre son comparables; se
+# namespacen por origen y se endurecen aristas que solo apoyan en párrafo + perfil.
+COMBINED_RELATION_OPTIONS = {
+    "min_entity_frequency": 1,
+    "min_sentence_cooccurrence": 2,
+    # Solo aristas tech↔cmt sin coocurrencia de frase comparable: exigir varios chunks compartidos.
+    "min_chunk_cross_model": 4,
+    "cross_model_score_relief": 0.045,
+    "score_threshold": 0.24,
+    "max_edges": 90,
+    "profile_term_damp": 0.58,
+    "association_term_damp": 0.85,
+    # Puentes semanticos tech×cmt (cos sobre centroides concat tech+cmt en articulos del workspace).
+    "semantic_cosine_min": 0.76,
+    "semantic_cross_max_edges": 110,
+}
+
+# Tope para candidatas solo cruzadas tech↔cmt antes del merge con grafos por modelo.
+COMBINED_CROSS_MODEL_POOL_MAX = 320
+# Tras deduplicar por par (no dirigido, mayor score), techo para acercarse a la unión
+# tech ∪ cmt ∪ combinadas sin truncar en 90.
+COMBINED_MERGED_MAX_EDGES = 290
+
+RELATIONS_ALGO_VERSION = "merge_tc_v13_combined_floor_024"
+
 
 def build_workspace_relations(workspace_id: str, model_key: str) -> dict:
+    model_key = canonical_model_key(model_key)
     summary = get_workspace_summary(workspace_id)
     processed_articles = [
         article
@@ -45,7 +90,12 @@ def build_workspace_relations(workspace_id: str, model_key: str) -> dict:
 
     aggregate_payload = build_workspace_projection(workspace_id, model_key)
     cache_path = _workspace_relations_path(workspace_id, model_key)
-    signature = _build_signature(processed_articles, model_key, aggregate_payload.get("signature", ""))
+    signature = _build_signature(
+        processed_articles,
+        model_key,
+        aggregate_payload.get("signature", ""),
+        is_combined_model(model_key),
+    )
     cached = _read_cached_payload(cache_path)
     if cached and cached.get("signature") == signature:
         return cached
@@ -53,10 +103,12 @@ def build_workspace_relations(workspace_id: str, model_key: str) -> dict:
     points = aggregate_payload.get("points", [])
     point_map = {str(point.get("key") or ""): point for point in points}
     if not point_map:
+        _floor_opts = COMBINED_RELATION_OPTIONS if is_combined_model(model_key) else DEFAULT_OPTIONS
         result = {
             "workspace_id": workspace_id,
             "workspace_name": summary.get("name", workspace_id),
             "model": model_key,
+            "score_threshold_used": float(_floor_opts["score_threshold"]),
             "processed_article_count": len(processed_articles),
             "total_article_count": summary.get("article_count", 0),
             "unique_entity_count": 0,
@@ -74,15 +126,18 @@ def build_workspace_relations(workspace_id: str, model_key: str) -> dict:
 
     for article in processed_articles:
         article_id = str(article["id"])
-        tsne_path = ARTICLES_DIR / article_id / f"tsne_{model_key}.json"
-        if not tsne_path.exists():
-            continue
+        if is_combined_model(model_key):
+            article_points = workspace_combined_points_for_relations(article_id)
+        else:
+            tsne_path = ARTICLES_DIR / article_id / f"tsne_{model_key}.json"
+            if not tsne_path.exists():
+                continue
+            try:
+                article_points = json.loads(tsne_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
 
-        try:
-            article_points = json.loads(tsne_path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-
+        combined = is_combined_model(model_key)
         for point in article_points:
             entity = str(point.get("entity") or "").strip()
             key = _normalize_entity(entity)
@@ -95,17 +150,31 @@ def build_workspace_relations(workspace_id: str, model_key: str) -> dict:
                 "article_ids": set(),
                 "sentences": set(),
                 "chunks": set(),
+                **({"origins": Counter()} if combined else {}),
             })
 
             stats["labels"][str(point.get("label") or "UNKNOWN")] += 1
             stats["frequency"] += 1
             stats["article_ids"].add(article_id)
+            if combined:
+                o = str(point.get("origin") or "joint").strip().lower() or "joint"
+                stats["origins"][o] += 1
 
             sentence_id = point.get("sentence_id")
             if sentence_id is not None:
-                sentence_key = f"{article_id}::s::{sentence_id}"
-                stats["sentences"].add(sentence_key)
-                sentence_entity_map[sentence_key].add(key)
+                if combined:
+                    origin = str(point.get("origin") or "joint").strip() or "joint"
+                    sentence_key = f"{article_id}::{origin}::s::{sentence_id}"
+                    # Misma frase lógica para tech y cmt (como en vista por artículo con sentence_id compartido).
+                    cross_sentence_key = f"{article_id}::cross::s::{sentence_id}"
+                    stats["sentences"].add(sentence_key)
+                    stats["sentences"].add(cross_sentence_key)
+                    sentence_entity_map[sentence_key].add(key)
+                    sentence_entity_map[cross_sentence_key].add(key)
+                else:
+                    sentence_key = f"{article_id}::s::{sentence_id}"
+                    stats["sentences"].add(sentence_key)
+                    sentence_entity_map[sentence_key].add(key)
 
             chunk_id = point.get("text_index")
             if chunk_id is not None:
@@ -121,7 +190,7 @@ def build_workspace_relations(workspace_id: str, model_key: str) -> dict:
         if stats["frequency"] < DEFAULT_OPTIONS["min_entity_frequency"]:
             continue
 
-        nodes.append({
+        node_dict = {
             "key": key,
             "entity": point.get("entity", key),
             "label": point.get("label") or _dominant_label(stats["labels"]),
@@ -133,7 +202,11 @@ def build_workspace_relations(workspace_id: str, model_key: str) -> dict:
             "chunks": stats["chunks"],
             "sentence_profile": _build_context_profile(stats["sentences"], sentence_entity_map, key),
             "chunk_profile": _build_context_profile(stats["chunks"], chunk_entity_map, key),
-        })
+        }
+        if is_combined_model(model_key):
+            origins = stats.get("origins", Counter())
+            node_dict["dominant_origin"] = _dominant_label(origins) if origins else "joint"
+        nodes.append(node_dict)
 
     allowed_keys = {node["key"] for node in nodes}
     sentence_entity_map = {
@@ -152,12 +225,51 @@ def build_workspace_relations(workspace_id: str, model_key: str) -> dict:
         "sentences": max(len(sentence_entity_map), 1),
         "chunks": max(len(chunk_entity_map), 1),
     }
-    edges = _build_edges(nodes, totals)
+    edge_options = COMBINED_RELATION_OPTIONS if is_combined_model(model_key) else DEFAULT_OPTIONS
+
+    if is_combined_model(model_key):
+        allowed_node_keys = {str(n.get("key") or "") for n in nodes if n.get("key")}
+        try:
+            tech_payload = build_workspace_relations(workspace_id, "tech")
+            cmt_payload = build_workspace_relations(workspace_id, "cmt")
+            tech_edges = _filter_edges_to_node_keys(tech_payload.get("edges") or [], allowed_node_keys)
+            cmt_edges = _filter_edges_to_node_keys(cmt_payload.get("edges") or [], allowed_node_keys)
+            cross_opts = {**edge_options, "max_edges": COMBINED_CROSS_MODEL_POOL_MAX}
+            cross_edges = _build_edges_cross_model_only(nodes, totals, cross_opts)
+            unit_emb, articles_for = _ambos_unit_centroids(processed_articles, allowed_node_keys)
+            semantic_edges = _build_semantic_cross_edges_ambos(nodes, unit_emb, articles_for, edge_options)
+            edges = _merge_ambos_relation_layers(
+                tech_edges,
+                cmt_edges,
+                cross_edges + semantic_edges,
+                max_total=COMBINED_MERGED_MAX_EDGES,
+                nodes=nodes,
+            )
+        except Exception:
+            try:
+                tech_payload = build_workspace_relations(workspace_id, "tech")
+                cmt_payload = build_workspace_relations(workspace_id, "cmt")
+                tech_edges = _filter_edges_to_node_keys(tech_payload.get("edges") or [], allowed_node_keys)
+                cmt_edges = _filter_edges_to_node_keys(cmt_payload.get("edges") or [], allowed_node_keys)
+                edges = _merge_ambos_relation_layers(
+                    tech_edges,
+                    cmt_edges,
+                    [],
+                    max_total=COMBINED_MERGED_MAX_EDGES,
+                    nodes=nodes,
+                )
+            except Exception:
+                edges = []
+                _annotate_workspace_edge_endpoint_mix(nodes, edges)
+    else:
+        edges = _build_edges(nodes, totals, edge_options, combined=False)
+        _annotate_workspace_edge_endpoint_mix(nodes, edges)
 
     result = {
         "workspace_id": workspace_id,
         "workspace_name": summary.get("name", workspace_id),
         "model": model_key,
+        "score_threshold_used": float(edge_options["score_threshold"]),
         "processed_article_count": len(processed_articles),
         "total_article_count": summary.get("article_count", 0),
         "unique_entity_count": int(aggregate_payload.get("unique_entity_count", len(point_map))),
@@ -171,6 +283,7 @@ def build_workspace_relations(workspace_id: str, model_key: str) -> dict:
                 "article_count": node["article_count"],
                 "x": node["x"],
                 "y": node["y"],
+                **({"dominant_origin": node["dominant_origin"]} if is_combined_model(model_key) else {}),
             }
             for node in nodes
         ],
@@ -181,25 +294,248 @@ def build_workspace_relations(workspace_id: str, model_key: str) -> dict:
     return result
 
 
-def _build_edges(nodes: list[dict], totals: dict[str, int]) -> list[dict]:
+def _undirected_pair_key(source_key: str, target_key: str) -> tuple[str, str]:
+    if source_key <= target_key:
+        return (source_key, target_key)
+    return (target_key, source_key)
+
+
+def _filter_edges_to_node_keys(edges: list[dict], allowed_keys: set[str]) -> list[dict]:
+    """Solo aristas cuyos extremos existen en la proyección combinada del workspace."""
+    if not allowed_keys:
+        return []
+    out: list[dict] = []
+    for edge in edges:
+        sk = str(edge.get("source") or "").strip()
+        tk = str(edge.get("target") or "").strip()
+        if sk in allowed_keys and tk in allowed_keys:
+            out.append(edge)
+    return out
+
+
+def _annotate_workspace_edge_endpoint_mix(nodes: list[dict], edges: list[dict]) -> None:
+    """Marca aristas entre entidad mayoritaria tech y otra cmt (vista ambos), etc."""
+    origin = {
+        str(n.get("key") or ""): str(n.get("dominant_origin") or "joint").lower()
+        for n in nodes
+        if n.get("key")
+    }
+    for e in edges:
+        oa = origin.get(str(e.get("source") or ""), "joint")
+        ob = origin.get(str(e.get("target") or ""), "joint")
+        if {oa, ob} == {"tech", "cmt"}:
+            e["endpoint_model_mix"] = "tech_cmt"
+        elif oa != ob and (oa == "joint" or ob == "joint"):
+            e["endpoint_model_mix"] = "joint_mix"
+        else:
+            e["endpoint_model_mix"] = "mono"
+        e.setdefault("weak_sentence_evidence", False)
+
+
+def _ambos_unit_centroids(
+    processed_articles: list[dict],
+    allowed_keys: set[str],
+) -> tuple[dict[str, np.ndarray], dict[str, set[str]]]:
+    """Centroides por entidad normalizada en espacio concat tech+cmt; vectores unitarios para coseno."""
+    sums: dict[str, np.ndarray] = {}
+    counts: dict[str, int] = defaultdict(int)
+    articles_for: dict[str, set[str]] = defaultdict(set)
+    for article in processed_articles:
+        aid = str(article.get("id") or "")
+        if not aid:
+            continue
+        rows = workspace_combined_occurrence_rows(aid)
+        if not rows:
+            continue
+        for row in rows:
+            key = str(row.get("norm_entity") or "").strip()
+            if not key or key not in allowed_keys:
+                continue
+            vec = np.asarray(row["vector"], dtype=np.float64)
+            if key not in sums:
+                sums[key] = vec.copy()
+            else:
+                sums[key] += vec
+            counts[key] += 1
+            articles_for[key].add(aid)
+    unit: dict[str, np.ndarray] = {}
+    for key, s in sums.items():
+        c = s / max(counts[key], 1)
+        norm = float(np.linalg.norm(c))
+        if norm < 1e-12:
+            continue
+        unit[key] = c / norm
+    return unit, articles_for
+
+
+def _semantic_cosine_to_edge_score(cos: float, cos_min: float) -> float:
+    span = max(1e-9, 1.0 - cos_min)
+    u = max(0.0, min(1.0, (cos - cos_min) / span))
+    return 0.37 + 0.51 * u
+
+
+def _build_semantic_cross_edges_ambos(
+    nodes: list[dict],
+    unit_emb: dict[str, np.ndarray],
+    articles_for: dict[str, set[str]],
+    options: dict,
+) -> list[dict]:
+    """Puentes tech×cmt por cercania en embedding concatenado (sin re-ejecutar modelos)."""
+    cos_min = float(options.get("semantic_cosine_min", 0.76))
+    cap = max(0, int(options.get("semantic_cross_max_edges", 52)))
+    if cap <= 0 or not unit_emb:
+        return []
+
+    tech_nodes = [n for n in nodes if str(n.get("dominant_origin") or "").lower() == "tech"]
+    cmt_nodes = [n for n in nodes if str(n.get("dominant_origin") or "").lower() == "cmt"]
+    edges: list[dict] = []
+
+    for ta in tech_nodes:
+        ka = str(ta.get("key") or "")
+        ea = unit_emb.get(ka)
+        if ea is None:
+            continue
+        arts_a = articles_for.get(ka, set())
+        for tb in cmt_nodes:
+            kb = str(tb.get("key") or "")
+            eb = unit_emb.get(kb)
+            if eb is None:
+                continue
+            if not (arts_a & articles_for.get(kb, set())):
+                continue
+            cos = float(np.dot(ea, eb))
+            if cos < cos_min:
+                continue
+            score = _semantic_cosine_to_edge_score(cos, cos_min)
+            edges.append({
+                "key": f"{ka}__{kb}__emb",
+                "source": ka,
+                "target": kb,
+                "source_entity": ta.get("entity", ka),
+                "target_entity": tb.get("entity", kb),
+                "score": round(score, 6),
+                "sentence_cooccurrence": 0,
+                "chunk_jaccard": 0.0,
+                "profile_similarity": round(cos, 6),
+                "sentence_npmi": 0.0,
+                "weak_sentence_evidence": False,
+                "semantic_embedding_bridge": True,
+                "embedding_cosine": round(cos, 6),
+            })
+
+    edges.sort(
+        key=lambda e: (-float(e.get("score") or 0.0), -float(e.get("embedding_cosine") or 0.0)),
+    )
+    return edges[:cap]
+
+
+def _merge_ambos_relation_layers(
+    tech_edges: list[dict],
+    cmt_edges: list[dict],
+    cross_edges: list[dict],
+    *,
+    max_total: int,
+    nodes: list[dict],
+) -> list[dict]:
+    """
+    Vista ambos: capas disjuntas por construcción (tech-tech y cmt-cmt vienen de cada
+    modelo; tech↔cmt solo de cross_edges). Si un par duplicara score, gana el de mayor score.
+    """
+    best: dict[tuple[str, str], dict] = {}
+
+    def _absorb(source_edges: list[dict]) -> None:
+        for edge in source_edges:
+            sk = str(edge.get("source") or "").strip()
+            tk = str(edge.get("target") or "").strip()
+            if not sk or not tk:
+                continue
+            pk = _undirected_pair_key(sk, tk)
+            sc = float(edge.get("score") or 0.0)
+            prev = best.get(pk)
+            if prev is None or sc > float(prev.get("score") or 0.0):
+                best[pk] = edge
+
+    _absorb(tech_edges)
+    _absorb(cmt_edges)
+    _absorb(cross_edges)
+
+    merged = list(best.values())
+    _annotate_workspace_edge_endpoint_mix(nodes, merged)
+
+    def _sort_key(item: dict) -> tuple:
+        mix = str(item.get("endpoint_model_mix") or "mono")
+        cross_rank = 0 if mix == "tech_cmt" else (1 if mix == "joint_mix" else 2)
+        weak_only = bool(item.get("weak_sentence_evidence"))
+        weak_rank = 0 if (mix == "tech_cmt" and weak_only) else 1
+        return (
+            cross_rank,
+            weak_rank,
+            -float(item.get("score") or 0.0),
+            -float(item.get("sentence_cooccurrence") or 0.0),
+            str(item.get("source_entity") or "").lower(),
+        )
+
+    merged.sort(key=_sort_key)
+    return merged[:max_total]
+
+
+def _build_edges_cross_model_only(nodes: list[dict], totals: dict[str, int], options: dict) -> list[dict]:
+    """Solo pares con dominant_origin tech × cmt (sin joint)."""
+    edges: list[dict] = []
+    n = len(nodes)
+    for i in range(n):
+        source = nodes[i]
+        oa = str(source.get("dominant_origin") or "joint").lower()
+        for j in range(i + 1, n):
+            target = nodes[j]
+            ob = str(target.get("dominant_origin") or "joint").lower()
+            if {oa, ob} != {"tech", "cmt"}:
+                continue
+            edge = _build_edge(source, target, totals, options, combined=True)
+            if edge:
+                edges.append(edge)
+
+    edges.sort(
+        key=lambda item: (-item["score"], -item["sentence_cooccurrence"], item["source_entity"].lower()),
+    )
+    return edges[: int(options["max_edges"])]
+
+
+def _build_edges(nodes: list[dict], totals: dict[str, int], options: dict, combined: bool) -> list[dict]:
     edges = []
     for index, source in enumerate(nodes):
         for target in nodes[index + 1:]:
-            edge = _build_edge(source, target, totals)
+            edge = _build_edge(source, target, totals, options, combined=combined)
             if edge:
                 edges.append(edge)
 
     edges.sort(key=lambda item: (-item["score"], -item["sentence_cooccurrence"], item["source_entity"].lower()))
-    return edges[: DEFAULT_OPTIONS["max_edges"]]
+    return edges[: int(options["max_edges"])]
 
 
-def _build_edge(source: dict, target: dict, totals: dict[str, int]) -> dict | None:
+def _build_edge(source: dict, target: dict, totals: dict[str, int], options: dict, combined: bool) -> dict | None:
+    cross_tech_cmt = False
+    if combined:
+        oa = str(source.get("dominant_origin") or "joint").lower()
+        ob = str(target.get("dominant_origin") or "joint").lower()
+        cross_tech_cmt = {oa, ob} == {"tech", "cmt"}
+
+    min_sentence = int(options["min_sentence_cooccurrence"])
     sentence_intersection = _intersect_size(source["sentences"], target["sentences"])
-    if sentence_intersection < DEFAULT_OPTIONS["min_sentence_cooccurrence"]:
-        return None
+    chunk_intersection = _intersect_size(source["chunks"], target["chunks"])
+
+    if sentence_intersection < min_sentence:
+        # Sin atajo solo-chunks para mismo modelo: chunk_key es compartido entre Tech/CMT y
+        # relacionaba masivamente entidades del mismo párrafo. Solo pares tech×cmt pueden
+        # usar solape de párrafos cuando las frases no son comparables entre modelos.
+        if combined and cross_tech_cmt:
+            min_chunk_weak = int(options.get("min_chunk_cross_model", 4))
+            if chunk_intersection < min_chunk_weak:
+                return None
+        else:
+            return None
 
     sentence_union = _union_size(source["sentences"], target["sentences"])
-    chunk_intersection = _intersect_size(source["chunks"], target["chunks"])
     chunk_union = _union_size(source["chunks"], target["chunks"])
 
     sentence_jaccard = sentence_intersection / sentence_union if sentence_union else 0.0
@@ -224,15 +560,26 @@ def _build_edge(source: dict, target: dict, totals: dict[str, int]) -> dict | No
     )
     association_strength = (0.8 * sentence_npmi) + (0.2 * chunk_npmi)
 
+    profile_damp = float(options.get("profile_term_damp", 1.0))
+    assoc_damp = float(options.get("association_term_damp", 1.0))
+    if combined and sentence_intersection < min_sentence:
+        profile_damp *= 0.72
+
     score = (
         (0.25 * sentence_jaccard) +
         (0.15 * chunk_jaccard) +
         (0.15 * overlap_strength) +
-        (0.20 * profile_similarity) +
-        (0.25 * association_strength)
+        (0.20 * profile_similarity * profile_damp) +
+        (0.25 * association_strength * assoc_damp)
     )
-    if score < DEFAULT_OPTIONS["score_threshold"]:
+    threshold = float(options["score_threshold"])
+    if combined and cross_tech_cmt:
+        threshold -= float(options.get("cross_model_score_relief", 0.0))
+        threshold = max(0.18, threshold)
+    if score < threshold:
         return None
+
+    weak_sentence_evidence = bool(combined and sentence_intersection < min_sentence)
 
     return {
         "key": f"{source['key']}__{target['key']}",
@@ -245,6 +592,7 @@ def _build_edge(source: dict, target: dict, totals: dict[str, int]) -> dict | No
         "chunk_jaccard": round(chunk_jaccard, 6),
         "profile_similarity": round(profile_similarity, 6),
         "sentence_npmi": round(sentence_npmi, 6),
+        "weak_sentence_evidence": weak_sentence_evidence,
     }
 
 
@@ -266,12 +614,26 @@ def _write_cached_payload(path: Path, payload: dict):
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _build_signature(processed_articles: list[dict], model_key: str, projection_signature: str) -> str:
+def _build_signature(
+    processed_articles: list[dict],
+    model_key: str,
+    projection_signature: str,
+    combined_mode: bool = False,
+) -> str:
     digest = hashlib.sha256()
     digest.update(model_key.encode("utf-8"))
     digest.update(projection_signature.encode("utf-8"))
+    digest.update(RELATIONS_ALGO_VERSION.encode("utf-8"))
+    digest.update(b"|combined|" if combined_mode else b"|single|")
     for article in processed_articles:
         article_id = article["id"]
+        if is_combined_model(model_key):
+            tech_path = ARTICLES_DIR / article_id / "embeddings_tech.npz"
+            cmt_path = ARTICLES_DIR / article_id / "embeddings_cmt.npz"
+            tech_stamp = tech_path.stat().st_mtime_ns if tech_path.exists() else 0
+            cmt_stamp = cmt_path.stat().st_mtime_ns if cmt_path.exists() else 0
+            digest.update(f"{article_id}|{tech_stamp}|{cmt_stamp}|occ_rows".encode("utf-8"))
+            continue
         tsne_path = ARTICLES_DIR / article_id / f"tsne_{model_key}.json"
         stamp = tsne_path.stat().st_mtime_ns if tsne_path.exists() else 0
         digest.update(f"{article_id}|{stamp}".encode("utf-8"))

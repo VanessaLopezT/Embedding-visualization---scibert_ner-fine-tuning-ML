@@ -1,4 +1,4 @@
-﻿/**
+/**
  * textPanel.css
  * Estilos del layout de dos paneles y contenido de texto.
  * - Panel izquierdo: gráfica t-SNE
@@ -115,12 +115,15 @@ html, body {
 
 #text-content {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  text-align: justify;
+  text-justify: inter-word;
 }
 
 #text-content p {
   margin: 14px 0;
   line-height: 1.65;
   color: #555;
+  text-align: justify;
 }
 
 #text-content .article-title {

@@ -18,6 +18,7 @@ import re
 import sys
 import threading
 import traceback
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -136,7 +137,25 @@ class ModelWorker(threading.Thread):
     def _process_job(self, job: ArticleJob):
         meta = _read_json(_meta_path(job.article_id))
         try:
+            has_turn = _COORDINATOR.wait_for_turn(job.article_id, job.model_key)
+            if not has_turn:
+                return
             with _ACTIVE_JOB_SEMAPHORE:
+                _write_json(_meta_path(job.article_id), {
+                    **meta,
+                    "status": "processing",
+                    "stage": "loading_model",
+                    "model": job.model_key,
+                    "error": None,
+                })
+                _write_progress(job.article_id, {
+                    "stage": "loading_model",
+                    "percent": 18,
+                    "processed": 0,
+                    "total": 0,
+                })
+
+                processor = self._get_or_load_processor(job.checkpoint_path)
                 _write_json(_meta_path(job.article_id), {
                     **meta,
                     "status": "processing",
@@ -146,7 +165,7 @@ class ModelWorker(threading.Thread):
                 })
                 _write_progress(job.article_id, {
                     "stage": "processing",
-                    "percent": 10,
+                    "percent": 26,
                     "processed": 0,
                     "total": 0,
                 })
@@ -172,7 +191,6 @@ class ModelWorker(threading.Thread):
                     "total": len(paragraphs),
                 })
 
-                processor = self._get_or_load_processor(job.checkpoint_path)
                 article_dir = _article_dir(job.article_id)
 
                 processor.process_texts(
@@ -239,28 +257,70 @@ class ModelWorker(threading.Thread):
 class ProcessingCoordinator:
     def __init__(self):
         self._lock = threading.Lock()
+        self._turn_condition = threading.Condition(self._lock)
         self._workers: dict[str, ModelWorker] = {}
         self._pending_keys: set[tuple[str, str]] = set()
+        self._pending_order: deque[tuple[str, str]] = deque()
+        self._jobs_by_key: dict[tuple[str, str], ArticleJob] = {}
+        self._running_keys: set[tuple[str, str]] = set()
+        self._active_model_key: str | None = None
 
     def submit(self, article_id: str, raw_path: Path, model_key: str, checkpoint_path: str) -> bool:
         job_key = (article_id, model_key)
-        with self._lock:
-            if job_key in self._pending_keys:
-                return False
-            self._pending_keys.add(job_key)
-            worker = self._get_worker_locked(model_key)
-
-        worker.submit(ArticleJob(
+        job = ArticleJob(
             article_id=article_id,
             raw_path=Path(raw_path),
             model_key=model_key,
             checkpoint_path=checkpoint_path,
-        ))
+        )
+        with self._turn_condition:
+            if job_key in self._pending_keys:
+                return False
+            self._pending_keys.add(job_key)
+            self._pending_order.append(job_key)
+            self._jobs_by_key[job_key] = job
+            worker = self._get_worker_locked(model_key)
+            self._refresh_queued_progress_locked()
+            self._turn_condition.notify_all()
+
+        worker.submit(job)
         return True
 
+    def wait_for_turn(self, article_id: str, model_key: str) -> bool:
+        job_key = (article_id, model_key)
+        with self._turn_condition:
+            while True:
+                if job_key not in self._pending_keys:
+                    return False
+                if self._active_model_key is None:
+                    next_model = self._next_model_locked()
+                    if next_model is None:
+                        return False
+                    self._active_model_key = next_model
+                    self._turn_condition.notify_all()
+                if self._active_model_key == model_key:
+                    self._running_keys.add(job_key)
+                    self._refresh_queued_progress_locked()
+                    return True
+                self._refresh_queued_progress_locked()
+                self._turn_condition.wait(timeout=1.0)
+
     def mark_done(self, article_id: str, model_key: str):
-        with self._lock:
-            self._pending_keys.discard((article_id, model_key))
+        job_key = (article_id, model_key)
+        with self._turn_condition:
+            self._running_keys.discard(job_key)
+            self._pending_keys.discard(job_key)
+            self._jobs_by_key.pop(job_key, None)
+            try:
+                self._pending_order.remove(job_key)
+            except ValueError:
+                pass
+
+            if self._active_model_key == model_key and not self._has_pending_for_model_locked(model_key):
+                self._active_model_key = None
+
+            self._refresh_queued_progress_locked()
+            self._turn_condition.notify_all()
 
     def ensure_worker(self, model_key: str) -> ModelWorker:
         with self._lock:
@@ -273,6 +333,54 @@ class ProcessingCoordinator:
             worker.start()
             self._workers[model_key] = worker
         return worker
+
+    def _next_model_locked(self) -> str | None:
+        for key in self._pending_order:
+            if key in self._pending_keys:
+                return key[1]
+        return None
+
+    def _has_pending_for_model_locked(self, model_key: str) -> bool:
+        for key in self._pending_order:
+            if key not in self._pending_keys:
+                continue
+            if key[1] == model_key:
+                return True
+        return False
+
+    def _refresh_queued_progress_locked(self):
+        pending_non_running = [key for key in self._pending_order if key in self._pending_keys and key not in self._running_keys]
+        if not pending_non_running:
+            return
+
+        model_totals: dict[str, int] = {}
+        for _, model_key in pending_non_running:
+            model_totals[model_key] = model_totals.get(model_key, 0) + 1
+
+        model_positions: dict[str, int] = {}
+        global_position = 1
+        for article_id, model_key in pending_non_running:
+            model_positions[model_key] = model_positions.get(model_key, 0) + 1
+            stage = "queued"
+            if self._active_model_key and self._active_model_key != model_key:
+                stage = "waiting_model_turn"
+            meta = _read_json(_meta_path(article_id))
+            if meta and meta.get("model") == model_key and meta.get("status") in {"queued", "processing"}:
+                _write_json(_meta_path(article_id), {
+                    **meta,
+                    "status": "queued",
+                    "stage": stage,
+                })
+            _write_progress(article_id, {
+                "stage": stage,
+                "percent": 10,
+                "queue_position": global_position,
+                "global_queue": global_position,
+                "model_queue": model_positions[model_key],
+                "model_queue_total": model_totals.get(model_key, model_positions[model_key]),
+                "active_model": self._active_model_key,
+            })
+            global_position += 1
 
 
 _COORDINATOR = ProcessingCoordinator()
@@ -289,6 +397,12 @@ def preload_registered_models():
 
     with _PRELOAD_LOCK:
         if _PRELOAD_COMPLETED:
+            return
+
+        preload_enabled = bool(getattr(settings, "PROCESSING_PRELOAD_MODELS", True))
+        if not preload_enabled:
+            print("[INIT] Precarga de modelos desactivada (PROCESSING_PRELOAD_MODELS=false).")
+            _PRELOAD_COMPLETED = True
             return
 
         for model_key, config in MODEL_REGISTRY.items():

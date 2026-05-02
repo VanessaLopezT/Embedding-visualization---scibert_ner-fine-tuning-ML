@@ -14,6 +14,7 @@ from pathlib import Path
 
 from django.conf import settings
 
+from .combined_results import canonical_model_key, get_supported_model_keys, is_combined_model
 from .model_registry import MODEL_REGISTRY
 from .processing_runtime import submit_article_job
 from .workspace_storage import (
@@ -36,6 +37,7 @@ def list_workspace_summaries() -> list[dict]:
 
 def get_workspace_summary(workspace_id: str) -> dict:
     workspace = read_workspace(workspace_id)
+    model_keys = get_supported_model_keys(tuple(MODEL_REGISTRY.keys()))
     article_items = []
     model_summary = {
         model_key: {
@@ -44,7 +46,7 @@ def get_workspace_summary(workspace_id: str) -> dict:
             "queued_or_processing": 0,
             "failed": 0,
         }
-        for model_key in MODEL_REGISTRY.keys()
+        for model_key in model_keys
     }
 
     for article_id in workspace.get("article_ids", []):
@@ -53,12 +55,12 @@ def get_workspace_summary(workspace_id: str) -> dict:
             article_items.append({
                 "id": article_id,
                 "exists": False,
-                "models": {model_key: "missing_article" for model_key in MODEL_REGISTRY.keys()},
+                "models": {model_key: "missing_article" for model_key in model_keys},
             })
             continue
 
         model_states = {}
-        for model_key in MODEL_REGISTRY.keys():
+        for model_key in model_keys:
             state = _get_article_model_state(article_id, article_meta, model_key)
             model_states[model_key] = state
             if state == "processed":
@@ -76,6 +78,7 @@ def get_workspace_summary(workspace_id: str) -> dict:
             "original_name": article_meta.get("original_name", article_id),
             "status": article_meta.get("status", "unknown"),
             "stage": article_meta.get("stage", "unknown"),
+            "model": article_meta.get("model"),
             "models": model_states,
         })
 
@@ -114,6 +117,12 @@ def delete_workspace_with_validation(workspace_id: str) -> bool:
 
 
 def enqueue_workspace_processing(workspace_id: str, model_key: str) -> dict:
+    model_key = canonical_model_key(model_key)
+    if is_combined_model(model_key):
+        raise ValueError(
+            "La vista combinada no se encola como procesamiento. "
+            "Procesa el workspace primero con tech y luego con cmt (o viceversa)."
+        )
     if model_key not in MODEL_REGISTRY:
         raise ValueError(f"Modelo desconocido: '{model_key}'")
 
@@ -135,7 +144,7 @@ def enqueue_workspace_processing(workspace_id: str, model_key: str) -> dict:
     if conflicting_jobs:
         active_models = ", ".join(sorted({item["model"] for item in conflicting_jobs}))
         raise ValueError(
-            f"Hay articulos del workspace en cola o procesandose con otro modelo ({active_models}). "
+            f"Hay artículos del workspace en cola o procesándose con otro modelo ({active_models}). "
             f"Espera a que terminen antes de procesar con '{model_key}'."
         )
 
@@ -219,6 +228,25 @@ def _read_article_meta(article_id: str) -> dict:
 def _get_article_model_state(article_id: str, article_meta: dict, model_key: str) -> str:
     if not article_meta:
         return "missing_article"
+
+    normalized_model_key = canonical_model_key(model_key)
+    if is_combined_model(normalized_model_key):
+        has_tech = _tsne_path(article_id, "tech").exists()
+        has_cmt = _tsne_path(article_id, "cmt").exists()
+        if has_tech and has_cmt:
+            return "processed"
+        active_model = article_meta.get("model")
+        active_status = article_meta.get("status")
+        missing_models = []
+        if not has_tech:
+            missing_models.append("tech")
+        if not has_cmt:
+            missing_models.append("cmt")
+        if active_status in {"queued", "processing"} and active_model in missing_models:
+            return active_status
+        if active_status == "failed" and active_model in missing_models:
+            return "failed"
+        return "missing"
 
     if _tsne_path(article_id, model_key).exists():
         return "processed"

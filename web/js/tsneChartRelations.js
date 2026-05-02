@@ -11,17 +11,21 @@
  * vistas actuales para no alterar tamano ni layout general.
  */
 
-import { getColorForLabel } from "./categoryColors.js";
+import { getColorForLabel, ambosOriginFillColor, ambosSeriesLegendFill } from "./categoryColors.js?v=20260501h";
+import { normalizeArticleFrozenAxis } from "./chartAxisUtils.js?v=20260603c";
+import { relationLineCurveness } from "./relationLineCurveness.js?v=20260601c";
 
 let activeRelationKey = null;
 const ARTICLE_LEGEND_WIDTH_TECH = "auto";
 const ARTICLE_LEGEND_WIDTH_CMT = "56%";
 const ARTICLE_LEGEND_WIDTH_WRAP = "52%";
+const ARTICLE_LEGEND_TOP_PX = 76;
+const ARTICLE_GRID_TOP_PX = 154;
 
 const DEFAULT_OPTIONS = {
   minEntityFrequency: 1,
   minSentenceCooccurrence: 2,
-  scoreThreshold: 0.24,
+  scoreThreshold: 0.16,
   maxEdges: 90,
   filterMode: "all",
 };
@@ -89,6 +93,9 @@ export function initTSNERelationsChart(chart, data, axisRange = null, options = 
   chart.on("click", (params) => {
     const datum = params?.data;
     if (!datum || !datum.isRelationNode) return;
+    if (Number(datum.degree || 0) < 1) {
+      return;
+    }
     const id = pickVisibleEntityId(datum.ids);
     if (id !== undefined) highlightEntityInPanel(id, datum.entity);
     const clickedKey = String(datum.key || "");
@@ -106,14 +113,17 @@ export function resetRelationsSelection() {
 
 function sanitizeOptions(options) {
   return {
+    combinedView: Boolean(options.combinedView),
     minEntityFrequency: clampInt(options.minEntityFrequency, 1, 9999, DEFAULT_OPTIONS.minEntityFrequency),
     minSentenceCooccurrence: Math.max(
       DEFAULT_OPTIONS.minSentenceCooccurrence,
       clampInt(options.minSentenceCooccurrence, 1, 99, DEFAULT_OPTIONS.minSentenceCooccurrence),
     ),
-    scoreThreshold: Math.max(
+    scoreThreshold: clampNumber(
+      options.scoreThreshold ?? DEFAULT_OPTIONS.scoreThreshold,
+      0.05,
+      0.98,
       DEFAULT_OPTIONS.scoreThreshold,
-      clampNumber(options.scoreThreshold, 0, 1, DEFAULT_OPTIONS.scoreThreshold),
     ),
     maxEdges: clampInt(options.maxEdges, 10, 5000, DEFAULT_OPTIONS.maxEdges),
     filterMode: ["all", "connected", "low", "medium", "high"].includes(options.filterMode) ? options.filterMode : "all",
@@ -121,6 +131,7 @@ function sanitizeOptions(options) {
 }
 
 function renderRelations(chart, data, axisRange, options) {
+  const axis = normalizeArticleFrozenAxis(axisRange);
   const model = buildRelationModel(data, options);
   const allQuartiles = computeScoreQuartiles(model.edges);
   const tieredModel = {
@@ -131,13 +142,27 @@ function renderRelations(chart, data, axisRange, options) {
     })),
   };
   const visibleModel = applyVisibilityFilter(tieredModel, options.filterMode);
-  const filtered = applySelection(visibleModel, activeRelationKey, options.filterMode);
-  
+  let filtered = applySelection(visibleModel, activeRelationKey, options.filterMode);
+  if (
+    activeRelationKey &&
+    filtered.edges.length === 0 &&
+    visibleModel.edges.length > 0
+  ) {
+    activeRelationKey = null;
+    filtered = applySelection(visibleModel, null, options.filterMode);
+  }
+
   // Usar cuartiles originales para mantener colores consistentes por tier (low=azul, medium=morado, high=magenta)
-  const series = buildNodeSeries(filtered.nodes);
-  const edgeSeries = buildEdgeSeries(filtered.edges, allQuartiles);
+  const series = buildNodeSeries(filtered.nodes, options);
+  const originByKey = new Map(
+    filtered.nodes.map((n) => [n.key, n.dominantOrigin || "joint"]),
+  );
+  const edgeSeries = buildEdgeSeries(filtered.edges, allQuartiles, null, originByKey);
   const relationLegend = filtered.edges.length ? buildRelationLegend() : buildNoRelationsGraphic(options.filterMode);
-  const legendConfig = buildArticleLegendConfig(filtered.nodes.map(node => node?.label));
+  const legendConfig = buildArticleLegendConfig(
+    filtered.nodes.map((node) => node?.label),
+    { combinedView: Boolean(options.combinedView) },
+  );
   const hasRenderableRelations = filtered.edges.length > 0;
 
   const option = {
@@ -145,6 +170,7 @@ function renderRelations(chart, data, axisRange, options) {
     animationDuration: 350,
     animationDurationUpdate: 350,
     animationEasing: "cubicOut",
+    animationEasingUpdate: "cubicOut",
     tooltip: {
       show: true,
       formatter: (params) => {
@@ -162,10 +188,16 @@ function renderRelations(chart, data, axisRange, options) {
         }
 
         const node = params?.data || {};
-        return [
+        const lines = [
           `<b>${escapeHtml(node.entity || "")}</b>`,
           `Tipo: ${escapeHtml(node.entityType || "")}`,
-        ].join("<br/>");
+        ];
+        if (options.combinedView && node.dominantOrigin) {
+          const o = String(node.dominantOrigin).toLowerCase();
+          const lab = o === "tech" ? "TechBERT" : o === "cmt" ? "PatVetBERT" : "Coincidencia ambos modelos";
+          lines.push(`Origen (mayoritario): ${lab}`);
+        }
+        return lines.join("<br/>");
       }
     },
     toolbox: {
@@ -180,7 +212,7 @@ function renderRelations(chart, data, axisRange, options) {
       top: 20
     },
     legend: {
-      top: 42,
+      top: ARTICLE_LEGEND_TOP_PX,
       left: "center",
       width: legendConfig.width,
       orient: "horizontal",
@@ -196,13 +228,13 @@ function renderRelations(chart, data, axisRange, options) {
       padding: legendConfig.padding,
       itemGap: 12,
       itemWidth: 11,
-      itemHeight: 11
+      itemHeight: 11,
     },
     grid: {
       left: 60,
       right: 30,
       bottom: 40,
-      top: 122,
+      top: ARTICLE_GRID_TOP_PX,
       containLabel: true
     },
     backgroundColor: "#fafafa",
@@ -232,7 +264,7 @@ function renderRelations(chart, data, axisRange, options) {
     ],
     xAxis: hasRenderableRelations ? {
       type: "value",
-      ...(axisRange ? { min: axisRange.xMin, max: axisRange.xMax } : {}),
+      ...(axis ? { min: axis.xMin, max: axis.xMax } : {}),
       name: "Dimension 1",
       nameLocation: "middle",
       nameGap: 30,
@@ -248,7 +280,7 @@ function renderRelations(chart, data, axisRange, options) {
     },
     yAxis: hasRenderableRelations ? {
       type: "value",
-      ...(axisRange ? { min: axisRange.yMin, max: axisRange.yMax } : {}),
+      ...(axis ? { min: axis.yMin, max: axis.yMax } : {}),
       name: "Dimension 2",
       nameLocation: "middle",
       nameGap: 40,
@@ -279,24 +311,34 @@ function renderRelations(chart, data, axisRange, options) {
 
   chart.off("legendselectchanged");
   chart.on("legendselectchanged", (params) => {
-    const selectedLabels = Object.keys(params.selected).filter((label) => params.selected[label]);
+    const sel = params?.selected || {};
+    const visibleLabels = new Set(
+      Object.keys(sel).filter((name) => sel[name]).map((name) => String(name)),
+    );
     const visibleNodeKeys = new Set(
       filtered.nodes
-        .filter((node) => selectedLabels.includes(node.label))
-        .map((node) => node.key)
+        .filter((node) => visibleLabels.has(String(node.label ?? "")))
+        .map((node) => String(node.key ?? "")),
     );
     chart.setOption({
+      animation: true,
+      animationDurationUpdate: 350,
+      animationEasingUpdate: "cubicOut",
       series: [
-        { id: edgeSeries.id, data: buildEdgeSeries(filtered.edges, null, visibleNodeKeys).data }
-      ]
+        {
+          id: edgeSeries.id,
+          data: buildEdgeSeries(filtered.edges, allQuartiles, visibleNodeKeys, originByKey).data,
+        },
+      ],
     });
   });
 }
 
-function buildArticleLegendConfig(labels = []) {
+function buildArticleLegendConfig(labels = [], opts = {}) {
+  const combinedView = Boolean(opts.combinedView);
   const uniqueLabels = Array.from(new Set(labels.map(label => String(label || "").trim()).filter(Boolean)));
   const usesCmtLabels = labels.some(label => /\/| and |oncology|treatment/i.test(String(label || "")));
-  if (usesCmtLabels) {
+  if (usesCmtLabels && !combinedView) {
     return {
       width: uniqueLabels.length >= 7 ? ARTICLE_LEGEND_WIDTH_CMT : ARTICLE_LEGEND_WIDTH_TECH,
       backgroundColor: "rgba(255, 255, 255, 0.8)",
@@ -336,11 +378,16 @@ function buildRelationModel(data, options) {
         labelCounts: new Map(),
         sentenceSet: new Set(),
         chunkSet: new Set(),
+        originCounts: { tech: 0, cmt: 0, joint: 0 },
       });
     }
 
     const bucket = aggregateMap.get(key);
     bucket.points.push(point);
+    const o = String(point?.origin || "joint").toLowerCase();
+    if (o === "tech") bucket.originCounts.tech += 1;
+    else if (o === "cmt") bucket.originCounts.cmt += 1;
+    else bucket.originCounts.joint += 1;
     if (point?.id !== undefined) bucket.ids.push(point.id);
     const label = String(point?.label || "TECHNIQUE");
     bucket.labelCounts.set(label, (bucket.labelCounts.get(label) || 0) + 1);
@@ -371,10 +418,23 @@ function buildRelationModel(data, options) {
       centroid.x /= Math.max(frequency, 1);
       centroid.y /= Math.max(frequency, 1);
 
+      const oc = item.originCounts || { tech: 0, cmt: 0, joint: 0 };
+      const t = oc.tech || 0;
+      const c = oc.cmt || 0;
+      const j = oc.joint || 0;
+      const m = Math.max(t, c, j);
+      let dominantOrigin = "joint";
+      if (m > 0) {
+        if (t === m) dominantOrigin = "tech";
+        else if (c === m) dominantOrigin = "cmt";
+        else dominantOrigin = "joint";
+      }
+
       return {
         key: item.key,
         entity: pickDisplayEntity(item.points, item.entity),
         label: dominantLabel(item.labelCounts),
+        dominantOrigin,
         frequency,
         sentenceCount: item.sentenceSet.size,
         chunkCount: item.chunkSet.size,
@@ -496,15 +556,13 @@ function buildEdge(sourceNode, targetNode, options, totals = {}) {
 
 function applySelection(model, selectedKey, filterMode) {
   if (!selectedKey) return model;
-  
-  // Filtrar aristas conectadas al nodo seleccionado
+
   let edgeSet = model.edges.filter((edge) => edge.source === selectedKey || edge.target === selectedKey);
-  
-  // Si hay un filtro de tier activo (low, medium, high), aplicarlo también
+
   if (filterMode === "low" || filterMode === "medium" || filterMode === "high") {
     edgeSet = edgeSet.filter((edge) => edge.tier === filterMode);
   }
-  
+
   const connectedKeys = new Set([selectedKey]);
   edgeSet.forEach((edge) => {
     connectedKeys.add(edge.source);
@@ -543,11 +601,22 @@ function applyVisibilityFilter(model, filterMode) {
   };
 }
 
-function buildEdgeSeries(edges, quartiles = null, visibleNodeKeys = null) {
+function crossCurvenessBoost(oa, ob) {
+  const a = String(oa || "joint").toLowerCase();
+  const b = String(ob || "joint").toLowerCase();
+  if (a === "tech" && b === "cmt") return 1;
+  if (a === "cmt" && b === "tech") return 1;
+  if (a !== b && (a === "joint" || b === "joint")) return 0.55;
+  return 0;
+}
+
+function buildEdgeSeries(edges, quartiles = null, visibleNodeKeys = null, originByKey = null) {
   const filteredEdges = Array.isArray(edges)
     ? edges.filter((edge) => {
         if (!visibleNodeKeys) return true;
-        return visibleNodeKeys.has(edge.source) && visibleNodeKeys.has(edge.target);
+        const s = String(edge.source ?? "");
+        const t = String(edge.target ?? "");
+        return visibleNodeKeys.has(s) && visibleNodeKeys.has(t);
       })
     : [];
   // Usar cuartiles proporcionados o calcular si no se pasaron
@@ -567,24 +636,30 @@ function buildEdgeSeries(edges, quartiles = null, visibleNodeKeys = null) {
       width: 2.4,
       opacity: 1,
       color: "#7f8c8d",
-      curveness: 0.08,
+      curveness: 0.1,
     },
-    data: filteredEdges.map((edge) => ({
-      ...edge,
-      coords: edge.coords,
-      lineStyle: {
-        width: 2.4,
-        opacity: edge.muted ? 0.1 : 1,
-        color: edge.muted ? "#d6dde3" : edgeColorFromQuartiles(edge.score, edgeQuartiles),
-        curveness: 0.08,
-      }
-    })),
+    data: filteredEdges.map((edge) => {
+      const boost = originByKey
+        ? crossCurvenessBoost(originByKey.get(edge.source), originByKey.get(edge.target))
+        : 0;
+      return {
+        ...edge,
+        coords: edge.coords,
+        lineStyle: {
+          width: 2.4,
+          opacity: 1,
+          color: edgeColorFromQuartiles(edge.score, edgeQuartiles),
+          curveness: relationLineCurveness(edge.source, edge.target, boost),
+        },
+      };
+    }),
 
     tooltip: { show: true }
   };
 }
 
-function buildNodeSeries(nodes) {
+function buildNodeSeries(nodes, options = {}) {
+  const combinedView = Boolean(options.combinedView);
   const referenceMax = Math.max(2, ...nodes.map((node) => node.frequency || 1));
   const groups = {};
 
@@ -595,18 +670,16 @@ function buildNodeSeries(nodes) {
       key: node.key,
       entity: node.entity,
       entityType: node.label,
+      dominantOrigin: node.dominantOrigin,
       frequency: node.frequency,
       sentenceCount: node.sentenceCount,
       degree: node.degree,
       ids: node.ids,
       symbolSize: nodeSizeFromFrequency(node.frequency, referenceMax),
       isRelationNode: true,
-      muted: Boolean(node.muted),
       selected: Boolean(node.selected),
     });
   });
-
-  const selectionActive = Boolean(activeRelationKey);
 
   return Object.keys(groups).map((label) => ({
     id: `rel-${label}`,
@@ -614,9 +687,12 @@ function buildNodeSeries(nodes) {
     type: "scatter",
     z: 3,
     data: groups[label],
+    symbol: "circle",
     symbolSize: (_value, params) => params?.data?.symbolSize ?? 14,
     itemStyle: {
-      color: getColorForLabel(label),
+      color: combinedView
+        ? ambosSeriesLegendFill(label, groups[label].map((n) => n.dominantOrigin ?? "joint"))
+        : getColorForLabel(label),
       opacity: 1,
       borderColor: "#ffffff",
       borderWidth: 1.2,
@@ -639,19 +715,24 @@ function buildNodeSeries(nodes) {
     encode: { x: 0, y: 1 },
   })).map((series) => ({
     ...series,
-    data: series.data.map((node) => ({
-      ...node,
-      itemStyle: {
-        color: getColorForLabel(node.entityType),
-        opacity: selectionActive ? 1 : (node.muted ? 0.22 : 1),
-        borderColor: node.selected ? "#212529" : "#ffffff",
-        borderWidth: node.selected ? 2.4 : 1.2,
-      },
-      label: {
-        color: selectionActive ? "#333" : (node.muted ? "#9aa1a7" : "#333"),
-        fontWeight: node.selected ? 600 : 400,
-      }
-    }))
+    data: series.data.map((node) => {
+      const fill = combinedView
+        ? ambosOriginFillColor(node.entityType, node.dominantOrigin)
+        : getColorForLabel(node.entityType);
+      return {
+        ...node,
+        itemStyle: {
+          color: fill,
+          opacity: 1,
+          borderColor: node.selected ? "#212529" : "#ffffff",
+          borderWidth: node.selected ? 2.4 : 1.2,
+        },
+        label: {
+          color: "#333",
+          fontWeight: node.selected ? 600 : 400,
+        },
+      };
+    }),
   }));
 }
 

@@ -1,4 +1,13 @@
-import { getColorForLabel } from "./categoryColors.js";
+import { getColorForLabel, ambosOriginFillColor, ambosSeriesLegendFill } from "./categoryColors.js?v=20260501h";
+import {
+  WORKSPACE_CATEGORY_LEGEND_LEFT,
+  WORKSPACE_CATEGORY_LEGEND_WIDTH,
+  extentFromScatterNodes,
+  workspaceAggregateSymbolSize,
+  workspaceScatterAxesFromExtent,
+  workspaceChartDataZoomInside,
+} from "./chartAxisUtils.js?v=20260603d";
+import { relationLineCurveness } from "./relationLineCurveness.js?v=20260601c";
 
 let activeWorkspaceRelationKey = null;
 
@@ -8,97 +17,172 @@ const EDGE_COLORS = {
   high: "#c026d3",
 };
 
-const WORKSPACE_LEGEND_WIDTH = "52%";
+/** Igual que `workspaceAggregateChart.js` para misma altura útil del gráfico. */
+const WORKSPACE_LEGEND_TOP_PX = 4;
+const WORKSPACE_GRID_TOP_PX = 78;
+
+function emptyWorkspaceRelationsOption(subtext) {
+  return {
+    title: {
+      text: "No se detectaron entidades",
+      subtext,
+      left: "center",
+      top: "center",
+      textStyle: {
+        fontSize: 16,
+        color: "#666",
+        fontWeight: "normal",
+      },
+      subtextStyle: {
+        fontSize: 12,
+        color: "#999",
+      },
+    },
+    series: [],
+    legend: { show: false },
+    xAxis: { show: false },
+    yAxis: { show: false },
+    toolbox: { show: false },
+    dataZoom: [],
+    graphic: [],
+  };
+}
+
+function notifyWorkspaceRelationsSummary(options, counts) {
+  if (typeof options.onRenderSummary !== "function") return;
+  queueMicrotask(() => {
+    options.onRenderSummary(counts);
+  });
+}
 
 export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
   const nodes = Array.isArray(payload?.nodes) ? payload.nodes : [];
   const allEdges = Array.isArray(payload?.edges) ? payload.edges : [];
-  
-  // Validar si no hay nodos/entidades
+  const combinedView = Boolean(
+    options.combinedView ?? (String(payload?.model || "").toLowerCase() === "ambos"),
+  );
+
+  chart.off("click");
+  chart.off("legendselectchanged");
+
+  // Validar si no hay nodos/entidades en el payload
   if (nodes.length === 0) {
-    chart.setOption({
-      title: {
-        text: "No se detectaron entidades",
-        subtext: "El workspace no contiene entidades válidas para generar relaciones",
-        left: "center",
-        top: "center",
-        textStyle: {
-          fontSize: 16,
-          color: "#666",
-          fontWeight: "normal"
-        },
-        subtextStyle: {
-          fontSize: 12,
-          color: "#999"
-        }
-      },
-      series: [],
-      legend: { show: false },
-      xAxis: { show: false },
-      yAxis: { show: false },
-      toolbox: { show: false },
-      dataZoom: [],
-      graphic: []
-    }, true);
+    chart.setOption(emptyWorkspaceRelationsOption(
+      "El workspace no contiene entidades válidas para generar relaciones",
+    ), true);
+    notifyWorkspaceRelationsSummary(options, { visibleNodeCount: 0, visibleEdgeCount: 0 });
     return;
   }
-  
+
   // Limpiar título previo cuando hay datos
   chart.setOption({ title: { show: false } }, false);
-  
+
+  const nodeKeySet = new Set(nodes.map((node) => String(node.key || "")));
+  if (activeWorkspaceRelationKey && !nodeKeySet.has(String(activeWorkspaceRelationKey))) {
+    activeWorkspaceRelationKey = null;
+  }
+
   const nodeMap = new Map(nodes.map(node => [String(node.key || ""), node]));
   const candidateEdges = selectStrongWorkspaceEdges(allEdges);
-  const thresholds = computeEdgeThresholds(candidateEdges);
+  const serverFloorRaw = Number(payload?.score_threshold_used);
+  const serverFloor = Number.isFinite(serverFloorRaw)
+    ? serverFloorRaw
+    : 0.24;
+  const optMin = Number(options.minScore);
+  const minScore = Number.isFinite(optMin)
+    ? Math.min(0.995, Math.max(serverFloor, optMin))
+    : serverFloor;
+  const scorePassEdges = candidateEdges.filter(
+    (e) => Number(e.score ?? 0) >= minScore - 1e-9,
+  );
+  const thresholds = computeEdgeThresholds(scorePassEdges);
   const filterMode = normalizeFilterMode(options.filterMode);
 
-  const edges = candidateEdges
-    .map(edge => ({
+  const edges = scorePassEdges
+    .map((edge) => ({
       ...edge,
       tier: classifyEdge(Number(edge.score || 0), thresholds),
     }))
-    .filter(edge => matchesFilter(edge.tier, filterMode));
+    .filter((edge) => matchesFilter(edge.tier, filterMode));
 
   const model = buildSelectionModel(nodes, edges);
   const visibilityFiltered = applyVisibilityFilter(model, filterMode);
-  const filtered = applySelection(visibilityFiltered, activeWorkspaceRelationKey);
+  let filtered = applySelection(visibilityFiltered, activeWorkspaceRelationKey);
+  if (
+    activeWorkspaceRelationKey &&
+    filtered.edges.length === 0 &&
+    visibilityFiltered.edges.length > 0
+  ) {
+    activeWorkspaceRelationKey = null;
+    filtered = applySelection(visibilityFiltered, null);
+  }
+
+  if (!filtered.nodes.length) {
+    chart.setOption(emptyWorkspaceRelationsOption(
+      "Con el filtro actual no quedan entidades visibles. Prueba con «Todas las entidades» u otro nivel de relación.",
+    ), true);
+    notifyWorkspaceRelationsSummary(options, { visibleNodeCount: 0, visibleEdgeCount: 0 });
+    return;
+  }
+
   const edgeSeriesData = buildEdgeSeriesData(filtered.edges, nodeMap);
   const hasRenderableRelations = filtered.edges.length > 0;
+  const axesModel = workspaceScatterAxesFromExtent(
+    extentFromScatterNodes(nodes),
+    0.07,
+    6,
+    combinedView ? "square" : false,
+  );
+  const scatterSeries = buildNodeSeries(filtered.nodes, { combinedView });
+  const lineSeries = hasRenderableRelations
+    ? [
+        {
+          id: "workspace-relations-edges",
+          type: "lines",
+          coordinateSystem: "cartesian2d",
+          polyline: false,
+          silent: false,
+          z: 1,
+          effect: { show: false },
+          showInLegend: false,
+          showLegendSymbol: false,
+          legendHoverLink: false,
+          lineStyle: {
+            width: 2.4,
+            opacity: 1,
+            color: "#7f8c8d",
+            curveness: 0.1,
+          },
+          data: edgeSeriesData,
+          tooltip: { show: true },
+        },
+      ]
+    : [];
+  /** Como tsneChartRelations.js: si no hay aristas, no puntos ni ejes — solo mensaje centrado. */
+  const series = hasRenderableRelations ? [...lineSeries, ...scatterSeries] : [];
+  const showAxes = hasRenderableRelations;
 
-  chart.off("click");
-  chart.on("click", (params) => {
-    const datum = params?.data;
-    if (!datum || !datum.isRelationNode) return;
-    const hasConnections = edges.some(edge => edge.source === datum.key || edge.target === datum.key);
-    if (!hasConnections) return;
-    activeWorkspaceRelationKey = activeWorkspaceRelationKey === datum.key ? null : datum.key;
-    initWorkspaceRelationsChart(chart, payload, options);
-  });
-
-  chart.off("legendselectchanged");
-  chart.on("legendselectchanged", (params) => {
-    const selectedLabels = Object.keys(params.selected)
-      .filter(label => params.selected[label]);
-    const visibleNodeKeys = new Set(
-      payload.nodes
-        .filter(node => selectedLabels.includes(String(node.label || "")))
-        .map(node => String(node.key || ""))
-    );
-    const filteredEdgeData = buildEdgeSeriesData(filtered.edges, nodeMap, visibleNodeKeys);
-    chart.setOption({ series: [{ data: filteredEdgeData }] });
-  });
-
-  chart.setOption({
+  /** Misma familia global que tsneChartRelations.js (articulo individual). */
+  const animationGlobals = {
     animation: true,
     animationDuration: 350,
     animationDurationUpdate: 350,
     animationEasing: "cubicOut",
+    animationEasingUpdate: "cubicOut",
+  };
+
+  chart.setOption({
+    ...animationGlobals,
     tooltip: {
       show: true,
-      trigger: "item",
       formatter(params) {
         if (params?.seriesType === "lines") {
           const edge = params.data || {};
           const edgeColor = String(edge?.lineStyle?.color || "#495057");
+          const semanticNote =
+            edge.semantic_embedding_bridge || edge.semantic_embedding_bridge === true
+              ? `<br/><span style="color:#555;font-size:11px;">Puente semántico (embeddings Tech+PatVet, coseno ${formatScore(edge.embedding_cosine ?? edge.profile_similarity)} )</span>`
+              : "";
           return [
             `<b style="color:${escapeHtml(edgeColor)};">${escapeHtml(edge.sourceEntity || "")} ↔ ${escapeHtml(edge.targetEntity || "")}</b>`,
             `Afinidad: ${formatScore(edge.score)}`,
@@ -106,16 +190,24 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
             `Solapamiento en chunk: ${formatScore(edge.chunk_jaccard || 0)}`,
             `Similitud de contexto: ${formatScore(edge.profile_similarity || 0)}`,
             `NPMI contextual: ${formatScore(edge.sentence_npmi || 0)}`,
+            semanticNote,
           ].join("<br/>");
         }
 
         const node = params?.data || {};
-        return [
+        const lines = [
           `<b>${escapeHtml(node.entity || "")}</b>`,
-          `Tipo: ${escapeHtml(node.entityLabel || "UNKNOWN")}`,
+          `Tipo: ${escapeHtml(node.entityType || "UNKNOWN")}`,
           `Frecuencia total: ${Number(node.frequency || 0)}`,
           `Articulos del workspace: ${Number(node.articleCount || 0)}`,
-        ].join("<br/>");
+        ];
+        const origin = node.dominantOrigin ?? node.dominant_origin;
+        if (combinedView && origin) {
+          const o = String(origin).toLowerCase();
+          const lab = o === "tech" ? "TechBERT" : o === "cmt" ? "PatVetBERT" : "Coincidencia ambos modelos";
+          lines.push(`Origen (mayoritario): ${lab}`);
+        }
+        return lines.join("<br/>");
       },
     },
     toolbox: {
@@ -131,9 +223,9 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
     },
     legend: {
       type: "plain",
-      top: 4,
-      left: "center",
-      width: WORKSPACE_LEGEND_WIDTH,
+      top: WORKSPACE_LEGEND_TOP_PX,
+      left: WORKSPACE_CATEGORY_LEGEND_LEFT,
+      width: WORKSPACE_CATEGORY_LEGEND_WIDTH,
       orient: "horizontal",
       textStyle: {
         fontSize: 12,
@@ -153,95 +245,85 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
       left: 60,
       right: 30,
       bottom: 40,
-      top: 78,
+      top: WORKSPACE_GRID_TOP_PX,
       containLabel: true,
     },
     backgroundColor: "#fafafa",
-    dataZoom: [
-      {
-        type: "inside",
-        xAxisIndex: [0],
-        start: 0,
-        end: 100,
-        zoomOnMouseWheel: true,
-        moveOnMouseMove: true,
-        moveOnMouseWheel: false,
-        filterMode: "none",
-      },
-      {
-        type: "inside",
-        yAxisIndex: [0],
-        start: 0,
-        end: 100,
-        zoomOnMouseWheel: true,
-        moveOnMouseMove: true,
-        moveOnMouseWheel: false,
-        filterMode: "none",
-      },
-    ],
-    xAxis: hasRenderableRelations ? {
-      type: "value",
-      name: "Dimension 1",
-      nameLocation: "middle",
-      nameGap: 30,
-      axisLabel: {
-        formatter(value) {
-          return Number(value || 0).toFixed(1);
+    dataZoom: hasRenderableRelations ? workspaceChartDataZoomInside() : [],
+    xAxis: showAxes
+      ? {
+          ...(axesModel?.xAxis ?? {
+            type: "value",
+            name: "Dimension 1",
+            nameLocation: "middle",
+            nameGap: 30,
+            axisLine: { show: false },
+            axisTick: { show: false },
+            splitLine: { show: true, lineStyle: { color: "#f0f0f0" } },
+          }),
+        }
+      : {
+          type: "value",
+          show: false,
         },
-      },
-      axisLine: { show: false },
-      axisTick: { show: false },
-      splitLine: { show: true, lineStyle: { color: "#f0f0f0" } },
-    } : {
-      type: "value",
-      show: false,
-    },
-    yAxis: hasRenderableRelations ? {
-      type: "value",
-      name: "Dimension 2",
-      nameLocation: "middle",
-      nameGap: 40,
-      axisLabel: {
-        formatter(value) {
-          return Number(value || 0).toFixed(1);
+    yAxis: showAxes
+      ? {
+          ...(axesModel?.yAxis ?? {
+            type: "value",
+            name: "Dimension 2",
+            nameLocation: "middle",
+            nameGap: 40,
+            axisLine: { show: false },
+            axisTick: { show: false },
+            splitLine: { show: true, lineStyle: { color: "#f0f0f0" } },
+          }),
+        }
+      : {
+          type: "value",
+          show: false,
         },
-      },
-      axisLine: { show: false },
-      axisTick: { show: false },
-      splitLine: { show: true, lineStyle: { color: "#f0f0f0" } },
-    } : {
-      type: "value",
-      show: false,
-    },
     graphic: hasRenderableRelations ? buildRelationLegend() : buildNoRelationsGraphic(filterMode),
-    series: hasRenderableRelations ? [
-      {
-        type: "lines",
-        coordinateSystem: "cartesian2d",
-        polyline: false,
-        silent: false,
-        z: 1,
-        emphasis: {
-          focus: "none",
-          lineStyle: {
-            width: 3.2,
-            opacity: 1,
-          },
-        },
-        data: edgeSeriesData,
-      },
-      ...buildNodeSeries(filtered.nodes),
-    ] : [],
-  }, true);
+    series,
+  }, { notMerge: true, lazyUpdate: false });
 
-  if (typeof options.onRenderSummary === "function") {
-    queueMicrotask(() => {
-      options.onRenderSummary({
-        visibleNodeCount: filtered.nodes.length,
-        visibleEdgeCount: filtered.edges.length,
-      });
+  notifyWorkspaceRelationsSummary(options, {
+    visibleNodeCount: filtered.nodes.length,
+    visibleEdgeCount: filtered.edges.length,
+  });
+
+  // Tras aplicar opción completa (igual orden que tsneChartRelations: render antes, handlers después).
+  chart.on("click", (params) => {
+    const datum = params?.data;
+    if (!datum || !datum.isRelationNode) return;
+    if (Number(datum.degree || 0) < 1) return;
+    activeWorkspaceRelationKey = activeWorkspaceRelationKey === datum.key ? null : datum.key;
+    initWorkspaceRelationsChart(chart, payload, {
+      ...options,
+      combinedView,
     });
-  }
+  });
+
+  chart.off("legendselectchanged");
+  chart.on("legendselectchanged", (params) => {
+    if (!filtered.edges.length) return;
+    const sel = params?.selected || {};
+    const visibleLabels = new Set(
+      Object.keys(sel).filter((name) => sel[name]).map((name) => String(name)),
+    );
+    const visibleNodeKeys = new Set(
+      payload.nodes
+        .filter((node) => visibleLabels.has(String(node.label ?? "")))
+        .map((node) => String(node.key ?? "")),
+    );
+    const filteredEdgeData = buildEdgeSeriesData(filtered.edges, nodeMap, visibleNodeKeys);
+    chart.setOption(
+      {
+        ...animationGlobals,
+        series: [{ id: "workspace-relations-edges", data: filteredEdgeData }],
+      },
+      { notMerge: false, lazyUpdate: false },
+    );
+  });
 }
 
 export function resetWorkspaceRelationsSelection() {
@@ -259,6 +341,13 @@ function selectStrongWorkspaceEdges(edges) {
   return Array.isArray(edges) ? edges : [];
 }
 
+function workspaceCrossCurvenessBoost(edge) {
+  const mix = String(edge?.endpoint_model_mix || "");
+  if (mix === "tech_cmt") return 1;
+  if (mix === "joint_mix") return 0.55;
+  return 0;
+}
+
 function buildEdgeSeriesData(edges, nodeMap, visibleNodeKeys = null) {
   return Array.isArray(edges)
     ? edges
@@ -273,6 +362,9 @@ function buildEdgeSeriesData(edges, nodeMap, visibleNodeKeys = null) {
           const source = nodeMap.get(String(edge.source || ""));
           const target = nodeMap.get(String(edge.target || ""));
           if (!source || !target) return null;
+          const sk = String(edge.source || "");
+          const tk = String(edge.target || "");
+          const boost = workspaceCrossCurvenessBoost(edge);
           return {
             ...edge,
             sourceEntity: edge.source_entity,
@@ -282,10 +374,10 @@ function buildEdgeSeriesData(edges, nodeMap, visibleNodeKeys = null) {
               [Number(target.x || 0), Number(target.y || 0)],
             ],
             lineStyle: {
-              color: edge.muted ? "#d6dde3" : EDGE_COLORS[edge.tier],
+              color: EDGE_COLORS[edge.tier],
               width: 2.4,
-              opacity: edge.muted ? 0.1 : 1,
-              curveness: 0.08,
+              opacity: 1,
+              curveness: relationLineCurveness(sk, tk, boost),
             },
           };
         })
@@ -380,85 +472,88 @@ function applySelection(model, selectedKey) {
     nodes: model.nodes
       .filter(node => connectedKeys.has(node.key))
       .map(node => ({
-      ...node,
-      muted: false,
-      selected: node.key === selectedKey,
-    })),
-    edges: connectedEdges.map(edge => ({
-      ...edge,
-      muted: false,
-    })),
+        ...node,
+        selected: node.key === selectedKey,
+      })),
+    edges: connectedEdges,
   };
 }
 
-function buildNodeSeries(nodes) {
-  const grouped = new Map();
-  nodes.forEach(node => {
+function buildNodeSeries(nodes, opts = {}) {
+  const combinedView = Boolean(opts.combinedView);
+  const groups = {};
+
+  nodes.forEach((node) => {
     const label = node.label || "UNKNOWN";
-    if (!grouped.has(label)) grouped.set(label, []);
-    grouped.get(label).push({
-      key: node.key,
+    if (!groups[label]) groups[label] = [];
+    const origin = String(node.dominant_origin || node.dominantOrigin || "joint").toLowerCase();
+    groups[label].push({
       value: [Number(node.x || 0), Number(node.y || 0)],
+      key: node.key,
       entity: node.entity,
-      entityLabel: label,
-      frequency: Number(node.frequency || 0),
-      articleCount: Number(node.article_count || node.article_count === 0 ? node.article_count : node.articleCount || 0),
+      entityType: label,
+      dominantOrigin: origin,
+      dominant_origin: origin,
+      frequency: Number(node.frequency || 1),
+      articleCount: Number(node.article_count ?? node.articleCount ?? 1),
+      degree: Number(node.degree || 0),
+      symbolSize: workspaceAggregateSymbolSize(node),
       isRelationNode: true,
-      muted: Boolean(node.muted),
       selected: Boolean(node.selected),
-      symbolSize: sizeFromNode(node),
     });
   });
 
-  const selectionActive = Boolean(activeWorkspaceRelationKey);
-
-  return Array.from(grouped.entries()).map(([label, data]) => ({
+  return Object.keys(groups).map((label) => ({
+    id: `ws-rel-${label}`,
     name: label,
     type: "scatter",
-    z: 2,
-    data,
+    z: 3,
+    data: groups[label],
+    symbol: "circle",
+    symbolSize: (_value, params) => params?.data?.symbolSize ?? 14,
+    itemStyle: {
+      color: combinedView
+        ? ambosSeriesLegendFill(label, groups[label].map((n) => n.dominantOrigin ?? "joint"))
+        : getColorForLabel(label),
+      opacity: 1,
+      borderColor: "#ffffff",
+      borderWidth: 1.2,
+    },
+    label: {
+      show: true,
+      formatter: (params) => String(params?.data?.entity || ""),
+      position: "top",
+      distance: 6,
+      fontSize: 10,
+      color: "#333",
+      fontWeight: "normal",
+    },
     emphasis: {
       focus: "none",
       scale: true,
     },
-    label: {
-      show: true,
-      position: "top",
-      distance: 6,
-      color: "#333",
-      fontSize: 10,
-      formatter(params) {
-        return String(params?.data?.entity || "");
-      },
-    },
-    itemStyle: {
-      color: getColorForLabel(label),
-      opacity: 1,
-    },
-  })).map(series => ({
+    encode: { x: 0, y: 1 },
+  })).map((series) => ({
     ...series,
-    data: series.data.map(node => ({
-      ...node,
-      itemStyle: {
-        color: getColorForLabel(node.entityLabel),
-        opacity: selectionActive ? 1 : (node.muted ? 0.22 : 1),
-        borderColor: node.selected ? "#212529" : "#ffffff",
-        borderWidth: node.selected ? 2.4 : 1.2,
-      },
-      label: {
-        color: selectionActive ? "#333" : (node.muted ? "#9aa1a7" : "#333"),
-        fontWeight: node.selected ? 600 : 400,
-      },
-    })),
+    data: series.data.map((node) => {
+      const fill = combinedView
+        ? ambosOriginFillColor(node.entityType, node.dominantOrigin)
+        : getColorForLabel(node.entityType);
+      return {
+        ...node,
+        itemStyle: {
+          color: fill,
+          opacity: 1,
+          borderColor: node.selected ? "#212529" : "#ffffff",
+          borderWidth: node.selected ? 2.4 : 1.2,
+        },
+        label: {
+          color: "#333",
+          fontWeight: node.selected ? 600 : 400,
+        },
+      };
+    }),
   }));
-}
-
-function sizeFromNode(node) {
-  const frequency = Math.max(1, Number(node.frequency || 1));
-  const articleCount = Math.max(1, Number(node.article_count || node.articleCount || 1));
-  const baseSize = 13 + Math.log2(frequency + 1) * 4.6 + Math.log2(articleCount + 1) * 3.8;
-  const boosted = node.selected ? baseSize + 5 : baseSize;
-  return Math.max(13, Math.min(42, boosted));
 }
 
 function buildRelationLegend() {

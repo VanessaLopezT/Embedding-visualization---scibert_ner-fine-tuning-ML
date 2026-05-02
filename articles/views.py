@@ -25,6 +25,14 @@ from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
+from .combined_results import (
+    CombinedInputsMissingError,
+    build_combined_article_ner,
+    build_combined_article_tsne,
+    canonical_model_key,
+    get_missing_base_models_for_article,
+    is_combined_model,
+)
 from .model_registry import MODEL_REGISTRY
 from .processing_runtime import submit_article_job
 from .workspace_projection import build_workspace_projection
@@ -122,6 +130,12 @@ def get_models(request):
         }
         for key, value in MODEL_REGISTRY.items()
     ]
+    models.append({
+        "key": "ambos",
+        "label": "Vista combinada (Tech + PatVetBERT)",
+        "description": "Muestra en una sola vista resultados ya generados con tech y cmt; no ejecuta un tercer modelo.",
+        "color_scheme": "combined",
+    })
     return JsonResponse({"models": models})
 
 
@@ -162,7 +176,9 @@ def upload_article(request):
     if not uploaded_files:
         return JsonResponse({"error": "No file provided"}, status=400)
 
-    model_key = request.POST.get("model", "tech")
+    model_key = canonical_model_key(request.POST.get("model", "tech"))
+    if is_combined_model(model_key):
+        model_key = "tech"
     if model_key not in MODEL_REGISTRY:
         return JsonResponse({"error": f"Modelo desconocido: '{model_key}'"}, status=400)
     workspace_id = str(request.POST.get("workspace_id", "")).strip()
@@ -232,7 +248,17 @@ def upload_article(request):
 
 @require_http_methods(["GET"])
 def get_article_tsne(request, article_id):
-    model_key = request.GET.get("model", "tech")
+    model_key = canonical_model_key(request.GET.get("model", "tech"))
+    if is_combined_model(model_key):
+        try:
+            data = build_combined_article_tsne(article_id)
+            return JsonResponse({"data": data, "model": "ambos"})
+        except CombinedInputsMissingError as exc:
+            return JsonResponse({
+                "error": str(exc),
+                "missing_models": exc.missing_models,
+                "model": "ambos",
+            }, status=409)
     tsne_file = _tsne_path(article_id, model_key)
     if not tsne_file.exists():
         return JsonResponse({"error": "Datos t-SNE no disponibles aún"}, status=404)
@@ -242,7 +268,17 @@ def get_article_tsne(request, article_id):
 
 @require_http_methods(["GET"])
 def get_article_ner(request, article_id):
-    model_key = request.GET.get("model", "tech")
+    model_key = canonical_model_key(request.GET.get("model", "tech"))
+    if is_combined_model(model_key):
+        try:
+            data = build_combined_article_ner(article_id)
+            return JsonResponse({"results": data, "model": "ambos"})
+        except CombinedInputsMissingError as exc:
+            return JsonResponse({
+                "error": str(exc),
+                "missing_models": exc.missing_models,
+                "model": "ambos",
+            }, status=409)
     ner_file = _ner_path(article_id, model_key)
     if not ner_file.exists():
         return JsonResponse({"error": "Resultados NER no disponibles aún"}, status=404)
@@ -277,7 +313,9 @@ def get_article_cleaned_text(request, article_id):
 
 @require_http_methods(["GET"])
 def get_example_tsne(request):
-    model_key = request.GET.get("model", "tech")
+    model_key = canonical_model_key(request.GET.get("model", "tech"))
+    if is_combined_model(model_key):
+        return JsonResponse({"data": []})
     example_file = MODEL_REGISTRY.get(model_key, MODEL_REGISTRY["tech"])["example_tsne"]
     if not example_file.exists():
         return JsonResponse({"data": []})
@@ -368,7 +406,14 @@ def workspace_process(request, workspace_id):
     except Exception:
         body = {}
 
-    model_key = body.get("model", "tech")
+    model_key = canonical_model_key(body.get("model", "tech"))
+    if is_combined_model(model_key):
+        return JsonResponse({
+            "error": (
+                "La vista combinada no se encola como procesamiento. "
+                "Procesa primero con tech y con cmt (en cualquier orden) y luego elige de nuevo la vista combinada."
+            )
+        }, status=400)
     if model_key not in MODEL_REGISTRY:
         return JsonResponse({"error": f"Modelo desconocido: '{model_key}'"}, status=400)
 
@@ -384,8 +429,8 @@ def workspace_process(request, workspace_id):
 
 @require_http_methods(["GET"])
 def workspace_aggregate(request, workspace_id):
-    model_key = request.GET.get("model", "tech")
-    if model_key not in MODEL_REGISTRY:
+    model_key = canonical_model_key(request.GET.get("model", "tech"))
+    if model_key not in MODEL_REGISTRY and not is_combined_model(model_key):
         return JsonResponse({"error": f"Modelo desconocido: '{model_key}'"}, status=400)
 
     try:
@@ -393,15 +438,15 @@ def workspace_aggregate(request, workspace_id):
     except FileNotFoundError:
         return JsonResponse({"error": "Workspace no encontrado"}, status=404)
     except Exception as exc:
-        return JsonResponse({"error": f"No se pudo construir la proyeccion del workspace: {exc}"}, status=500)
+        return JsonResponse({"error": f"No se pudo construir la proyección del workspace: {exc}"}, status=500)
 
     return JsonResponse(payload)
 
 
 @require_http_methods(["GET"])
 def workspace_relations(request, workspace_id):
-    model_key = request.GET.get("model", "tech")
-    if model_key not in MODEL_REGISTRY:
+    model_key = canonical_model_key(request.GET.get("model", "tech"))
+    if model_key not in MODEL_REGISTRY and not is_combined_model(model_key):
         return JsonResponse({"error": f"Modelo desconocido: '{model_key}'"}, status=400)
 
     try:
@@ -429,7 +474,15 @@ def reprocess_article(request, article_id):
     except Exception:
         body = {}
 
-    model_key = body.get("model", "tech")
+    model_key = canonical_model_key(body.get("model", "tech"))
+    if is_combined_model(model_key):
+        missing_models = get_missing_base_models_for_article(article_id, "tsne")
+        if not missing_models:
+            return JsonResponse({
+                "error": "Este artículo ya tiene resultados con tech y con cmt; no queda un modelo base pendiente para reprocesar desde la vista combinada.",
+                "article_id": article_id,
+            }, status=409)
+        model_key = missing_models[0]
     if model_key not in MODEL_REGISTRY:
         return JsonResponse({"error": f"Modelo desconocido: '{model_key}'"}, status=400)
 

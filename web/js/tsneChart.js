@@ -3,14 +3,18 @@
  * Gestiona la visualizaciÃ³n base de la grÃ¡fica t-SNE con ECharts.
  */
 
-import { getColorForLabel } from "./categoryColors.js";
+import { getColorForLabel, ambosOriginFillColor, ambosSeriesLegendFill } from "./categoryColors.js?v=20260501h";
 
 let globalChart = null;
 const ARTICLE_LEGEND_WIDTH_TECH = "auto";
 const ARTICLE_LEGEND_WIDTH_CMT = "56%";
 const ARTICLE_LEGEND_WIDTH_WRAP = "52%";
+/** Leyenda bajo los overlays HTML (Escala / Mostrar), no encima en z-order del lienzo. */
+const ARTICLE_LEGEND_TOP_PX = 76;
+const ARTICLE_GRID_TOP_PX = 154;
 
-export function initTSNEChart(chart, data, axisRange = null) {
+export function initTSNEChart(chart, data, axisRange = null, options = {}) {
+  const combinedView = Boolean(options.combinedView);
   globalChart = chart;
   
   // Validar si no hay datos de entidades
@@ -18,7 +22,7 @@ export function initTSNEChart(chart, data, axisRange = null) {
     chart.setOption({
       title: {
         text: "No se detectaron entidades",
-        subtext: "El modelo no encontró entidades válidas en este texto para el modelo seleccionado",
+        subtext: "No se encontraron entidades válidas en este texto para el modelo seleccionado",
         left: "center",
         top: "center",
         textStyle: {
@@ -39,35 +43,53 @@ export function initTSNEChart(chart, data, axisRange = null) {
     return;
   }
   
-  const legendConfig = buildArticleLegendConfig(data.map(point => point?.label));
+  const legendConfig = buildArticleLegendConfig(
+    data.map((point) => point?.label),
+    { combinedView },
+  );
   
   // Limpiar título previo cuando hay datos
   chart.setOption({ title: { show: false } }, false);
   
-  // Agrupar los puntos por su etiqueta para crear series separadas
   const groups = {};
   data.forEach(p => {
-    if (!groups[p.label]) groups[p.label] = [];
-
-    groups[p.label].push({
-
+    const gk = p.label || "UNKNOWN";
+    if (!groups[gk]) groups[gk] = [];
+    const row = {
       value: [p.x, p.y],
-      
       entity: p.entity,
       label: p.label,
+      origin: p.origin,
       text_index: p.text_index,
       id: p.id,
-      sentence_text: p.sentence_text
-    });
+      sentence_text: p.sentence_text,
+    };
+    if (combinedView) {
+      row.itemStyle = {
+        color: ambosOriginFillColor(p.label, p.origin),
+        borderColor: "#ffffff",
+        borderWidth: 1,
+      };
+    }
+    groups[gk].push(row);
   });
 
-  const series = Object.keys(groups).map(label => ({
-    name: label,
+  const groupKeys = Object.keys(groups);
+
+  const series = groupKeys.map((groupKey) => ({
+    name: groupKey,
     type: "scatter",
-    data: groups[label],
+    data: groups[groupKey],
     symbolSize: 16,
-    itemStyle: {
-      color: getColorForLabel(label)
+    symbol: "circle",
+    itemStyle: combinedView ? {
+      color: ambosSeriesLegendFill(groupKey, groups[groupKey].map((p) => p.origin)),
+      borderColor: "#ffffff",
+      borderWidth: 1,
+    } : {
+      color: getColorForLabel(groupKey),
+      borderColor: "#ffffff",
+      borderWidth: 1,
     },
 
     label: {
@@ -93,7 +115,13 @@ export function initTSNEChart(chart, data, axisRange = null) {
     tooltip: {
       show: true,
       formatter: function(p) {
-        return "<b>" + p.data.entity + "</b><br/>" + "Tipo: " + p.seriesName;
+        const origin = p?.data?.origin;
+        const extra = combinedView && origin
+          ? "<br/>Origen: " +
+            (String(origin).toLowerCase() === "tech" ? "TechBERT"
+              : String(origin).toLowerCase() === "cmt" ? "PatVetBERT" : "Ambos modelos")
+          : "";
+        return "<b>" + p.data.entity + "</b><br/>" + "Tipo: " + p.seriesName + extra;
       }
     },
 
@@ -108,7 +136,7 @@ export function initTSNEChart(chart, data, axisRange = null) {
     },
 
     legend: {
-      top: 42,
+      top: ARTICLE_LEGEND_TOP_PX,
       left: "center",
       width: legendConfig.width,
       orient: "horizontal",
@@ -124,14 +152,14 @@ export function initTSNEChart(chart, data, axisRange = null) {
       padding: legendConfig.padding,
       itemGap: 12,
       itemWidth: 11,
-      itemHeight: 11
+      itemHeight: 11,
     },
 
     grid: {
       left: 60,
       right: 30,
       bottom: 40,
-      top: 122,
+      top: ARTICLE_GRID_TOP_PX,
       containLabel: true
     },
 
@@ -244,10 +272,12 @@ function clearHighlightInPanel() {
   });
 }
 
-function buildArticleLegendConfig(labels = []) {
+function buildArticleLegendConfig(labels = [], opts = {}) {
+  const combinedView = Boolean(opts.combinedView);
   const uniqueLabels = Array.from(new Set(labels.map(label => String(label || "").trim()).filter(Boolean)));
   const usesCmtLabels = labels.some(label => /\/| and |oncology|treatment/i.test(String(label || "")));
-  if (usesCmtLabels) {
+  /** En «ambos» la mezcla dispara uso de anchos CMT y encoge el plot; misma geometría que vistas por modelo único típicas. */
+  if (usesCmtLabels && !combinedView) {
     return {
       width: uniqueLabels.length >= 7 ? ARTICLE_LEGEND_WIDTH_CMT : ARTICLE_LEGEND_WIDTH_TECH,
       backgroundColor: "rgba(255, 255, 255, 0.8)",

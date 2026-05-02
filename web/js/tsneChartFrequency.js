@@ -4,13 +4,16 @@
  * Click en un agregado despliega ocurrencias individuales.
  */
 
-import { getColorForLabel } from "./categoryColors.js";
+import { getColorForLabel, ambosOriginFillColor, ambosSeriesLegendFill } from "./categoryColors.js?v=20260501h";
 
 let expandedEntityKey = null;
+/** Igual que vista Original (`tsneChart.js`): solo min/max si el caller pasa `axisRange`; si no, ECharts escala solo. */
 let frequencyAxisRange = null;
 const ARTICLE_LEGEND_WIDTH_TECH = "auto";
 const ARTICLE_LEGEND_WIDTH_CMT = "56%";
 const ARTICLE_LEGEND_WIDTH_WRAP = "52%";
+const ARTICLE_LEGEND_TOP_PX = 76;
+const ARTICLE_GRID_TOP_PX = 154;
 let frequencyScaleOptions = {
   scaleMode: "article",
   globalReferenceMax: 30
@@ -22,7 +25,8 @@ export function initTSNEFrequencyChart(chart, data, axisRange = null, options = 
     scaleMode: options.scaleMode === "global" ? "global" : "article",
     globalReferenceMax: Number.isFinite(options.globalReferenceMax) && options.globalReferenceMax > 1
       ? options.globalReferenceMax
-      : 30
+      : 30,
+    combinedView: Boolean(options.combinedView),
   };
   const safeData = Array.isArray(data) ? data : [];
 
@@ -59,10 +63,14 @@ export function initTSNEFrequencyChart(chart, data, axisRange = null, options = 
   
   renderFrequency(chart, safeData);
   clearChartHoverState(chart);
+  requestAnimationFrame(() => {
+    if (chart && typeof chart.resize === "function") chart.resize();
+  });
 
   chart.off("mouseover");
   chart.off("mouseout");
   chart.off("click");
+  chart.off("legendselectchanged");
 
   chart.on("mouseover", (params) => {
     if (!params.data) return;
@@ -92,6 +100,9 @@ export function initTSNEFrequencyChart(chart, data, axisRange = null, options = 
         }
         return;
       }
+      try {
+        chart.dispatchAction({ type: "downplay", seriesIndex: "all" });
+      } catch (_) {}
       expandedEntityKey = expandedEntityKey === params.data.key ? null : params.data.key;
       renderFrequency(chart, safeData);
       clearChartHoverState(chart);
@@ -103,6 +114,9 @@ export function initTSNEFrequencyChart(chart, data, axisRange = null, options = 
         highlightEntityInPanel(params.data);
       }
       expandedEntityKey = null;
+      try {
+        chart.dispatchAction({ type: "downplay", seriesIndex: "all" });
+      } catch (_) {}
       renderFrequency(chart, safeData);
       clearChartHoverState(chart);
       return;
@@ -168,21 +182,31 @@ function getEventOffset(evt) {
 }
 
 function renderFrequency(chart, data) {
+  const axisRange = frequencyAxisRange || null;
   const series = buildFrequencySeries(data, expandedEntityKey, frequencyScaleOptions);
-  const axisRange = frequencyAxisRange || getCurrentAxisRange(chart);
-  const legendConfig = buildArticleLegendConfig(data.map(point => point?.label));
+
+  const legendConfig = buildArticleLegendConfig(
+    data.map((point) => point?.label),
+    { combinedView: Boolean(frequencyScaleOptions.combinedView) },
+  );
 
   const option = {
     animation: true,
-    animationDuration: 0,
-    animationDurationUpdate: 0,
-    animationEasing: "linear",
+    animationDuration: 350,
+    animationDurationUpdate: 350,
+    animationEasing: "cubicOut",
     tooltip: {
       show: true,
       formatter: function(p) {
         if (p.data && p.data.isAggregate) {
-          return "<b>" + p.data.entity + "</b><br/>Tipo dominante: " + p.data.label +
-                 "<br/>Frecuencia: " + p.data.frequency;
+          let out = "<b>" + p.data.entity + "</b><br/>Tipo dominante: " + p.data.label +
+            "<br/>Frecuencia: " + p.data.frequency;
+          if (frequencyScaleOptions.combinedView && p.data.dominantOrigin) {
+            const o = String(p.data.dominantOrigin).toLowerCase();
+            const t = o === "tech" ? "TechBERT" : o === "cmt" ? "PatVetBERT" : "Ambos modelos";
+            out += "<br/>Origen mayoritario: " + t;
+          }
+          return out;
         }
         return "<b>" + p.data.entity + "</b><br/>Tipo: " + (p.data.displayLabel || p.data.label);
       }
@@ -197,7 +221,7 @@ function renderFrequency(chart, data) {
       top: 20
     },
     legend: {
-      top: 42,
+      top: ARTICLE_LEGEND_TOP_PX,
       left: "center",
       width: legendConfig.width,
       orient: "horizontal",
@@ -213,13 +237,13 @@ function renderFrequency(chart, data) {
       padding: legendConfig.padding,
       itemGap: 12,
       itemWidth: 11,
-      itemHeight: 11
+      itemHeight: 11,
     },
     grid: {
       left: 60,
       right: 30,
       bottom: 40,
-      top: 122,
+      top: ARTICLE_GRID_TOP_PX,
       containLabel: true
     },
     backgroundColor: "#fafafa",
@@ -279,10 +303,11 @@ function renderFrequency(chart, data) {
   chart.setOption(option, true);
 }
 
-function buildArticleLegendConfig(labels = []) {
+function buildArticleLegendConfig(labels = [], opts = {}) {
+  const combinedView = Boolean(opts.combinedView);
   const uniqueLabels = Array.from(new Set(labels.map(label => String(label || "").trim()).filter(Boolean)));
   const usesCmtLabels = labels.some(label => /\/| and |oncology|treatment/i.test(String(label || "")));
-  if (usesCmtLabels) {
+  if (usesCmtLabels && !combinedView) {
     return {
       width: uniqueLabels.length >= 7 ? ARTICLE_LEGEND_WIDTH_CMT : ARTICLE_LEGEND_WIDTH_TECH,
       backgroundColor: "rgba(255, 255, 255, 0.8)",
@@ -303,23 +328,26 @@ function buildArticleLegendConfig(labels = []) {
   };
 }
 
-function getCurrentAxisRange(chart) {
-  if (!chart || typeof chart.getModel !== "function") return null;
-  try {
-    const model = chart.getModel();
-    const xAxis = model.getComponent("xAxis", 0)?.axis;
-    const yAxis = model.getComponent("yAxis", 0)?.axis;
-    if (!xAxis || !yAxis) return null;
-    const [xMin, xMax] = xAxis.scale.getExtent();
-    const [yMin, yMax] = yAxis.scale.getExtent();
-    if (![xMin, xMax, yMin, yMax].every(Number.isFinite)) return null;
-    return { xMin, xMax, yMin, yMax };
-  } catch (_) {
-    return null;
-  }
+function _normOriginKey(origin) {
+  const o = String(origin || "joint").toLowerCase();
+  if (o === "tech") return "tech";
+  if (o === "cmt") return "cmt";
+  return "joint";
+}
+
+function _pickDominantOrigin(originCounts) {
+  const tech = originCounts.tech || 0;
+  const cmt = originCounts.cmt || 0;
+  const joint = originCounts.joint || 0;
+  const m = Math.max(tech, cmt, joint);
+  if (m <= 0) return "joint";
+  if (tech === m) return "tech";
+  if (cmt === m) return "cmt";
+  return "joint";
 }
 
 function buildFrequencySeries(data, expandedKey, scaleOptions = {}) {
+  const combinedView = Boolean(scaleOptions.combinedView);
   const aggregateMap = new Map();
   data.forEach(p => {
     const raw = String(p.entity || "").trim();
@@ -330,12 +358,15 @@ function buildFrequencySeries(data, expandedKey, scaleOptions = {}) {
         key,
         entity: raw,
         points: [],
-        labelCounts: {}
+        labelCounts: {},
+        originCounts: { tech: 0, cmt: 0, joint: 0 },
       });
     }
     const bucket = aggregateMap.get(key);
     bucket.points.push(p);
     bucket.labelCounts[p.label] = (bucket.labelCounts[p.label] || 0) + 1;
+    const ok = _normOriginKey(p.origin);
+    bucket.originCounts[ok] += 1;
   });
 
   const aggregates = Array.from(aggregateMap.values()).map(item => {
@@ -349,11 +380,13 @@ function buildFrequencySeries(data, expandedKey, scaleOptions = {}) {
     centroid.y /= count;
 
     const dominantLabel = Object.entries(item.labelCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "TECHNIQUE";
+    const dominantOrigin = _pickDominantOrigin(item.originCounts);
     return {
       key: item.key,
       entity: item.entity,
       frequency: count,
       label: dominantLabel,
+      dominantOrigin,
       value: [centroid.x, centroid.y],
       occurrences: item.points
     };
@@ -394,15 +427,22 @@ function buildFrequencySeries(data, expandedKey, scaleOptions = {}) {
 
   const groupedByLabel = {};
   aggregates.forEach(item => {
-    if (!groupedByLabel[item.label]) groupedByLabel[item.label] = [];
+    const groupKey = item.label;
+    if (!groupedByLabel[groupKey]) groupedByLabel[groupKey] = [];
     const isExpandedAggregate = Boolean(expandedKey) && item.key === expandedKey;
     const baseSize = sizeFromFrequency(item.frequency);
     if (!isExpandedAggregate) {
-      groupedByLabel[item.label].push({
+      groupedByLabel[groupKey].push({
         ...item,
         isAggregate: true,
         symbolSize: baseSize,
         symbol: "circle",
+        itemStyle: combinedView ? {
+          color: ambosOriginFillColor(item.label, item.dominantOrigin),
+          borderColor: "#ffffff",
+          borderWidth: 1,
+          opacity: 1,
+        } : undefined,
         emphasis: {
           focus: "series",
           scale: true,
@@ -424,9 +464,19 @@ function buildFrequencySeries(data, expandedKey, scaleOptions = {}) {
           displayLabel: expanded.label,
           sentence_text: p.sentence_text,
           text_index: p.text_index,
+          sentence_id: p.sentence_id,
+          start: p.start,
+          end: p.end,
           isOccurrence: true,
           parentKey: expanded.key,
           symbolSize: 9,
+          symbol: "circle",
+          itemStyle: combinedView ? {
+            color: ambosOriginFillColor(p.label, p.origin),
+            borderColor: "#ffffff",
+            borderWidth: 1,
+            opacity: 1,
+          } : undefined,
           z: 5,
           emphasis: {
             focus: "series",
@@ -437,13 +487,20 @@ function buildFrequencySeries(data, expandedKey, scaleOptions = {}) {
     }
   }
 
-  return Object.keys(groupedByLabel).map(label => ({
+  return Object.keys(groupedByLabel).map((label) => ({
     id: `freq-${label}`,
     name: label,
     type: "scatter",
     data: groupedByLabel[label],
     symbolSize: (_value, params) => params?.data?.symbolSize ?? 16,
-    itemStyle: {
+    symbol: "circle",
+    itemStyle: combinedView ? {
+      opacity: 1,
+      color: ambosSeriesLegendFill(
+        label,
+        groupedByLabel[label].map((d) => d.dominantOrigin ?? d.origin ?? "joint"),
+      ),
+    } : {
       color: getColorForLabel(label),
       opacity: 1,
       borderColor: "#ffffff",
