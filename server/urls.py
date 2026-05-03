@@ -14,6 +14,7 @@ urlpatterns = [
     path("api/articles/<str:article_id>/ner", views.get_article_ner, name="get_article_ner"),
     path("api/articles/<str:article_id>/meta", views.get_article_meta, name="get_article_meta"),
     path("api/articles/<str:article_id>/cleaned-text", views.get_article_cleaned_text, name="get_article_cleaned_text"),
+    path("api/articles/<str:article_id>/relations", views.article_relations, name="article_relations"),
     path("api/articles/<str:article_id>/reprocess", views.reprocess_article, name="reprocess_article"),
     # Workspaces
     path("api/workspaces", views.workspaces, name="workspaces"),

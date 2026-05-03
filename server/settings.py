@@ -71,7 +71,8 @@ MODEL_CMT_CHECKPOINT = r"PatVetBERT\best_model"
 # Runtime de procesamiento
 # 1 = máxima estabilidad; subirlo solo si la máquina soporta concurrencia real.
 PROCESSING_MAX_ACTIVE_JOBS = 1
-# Descargar el modelo del worker tras este tiempo inactivo.
+# Sin trabajos nuevos en la cola durante este tiempo → el worker descarga el modelo de RAM.
+# No limita cuánto puede tardar un PDF que ya está procesándose.
 PROCESSING_WORKER_IDLE_SECONDS = 600
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

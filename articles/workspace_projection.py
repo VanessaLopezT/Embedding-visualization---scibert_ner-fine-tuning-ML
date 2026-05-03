@@ -1,12 +1,15 @@
 """
-Construccion y cache de proyecciones globales por workspace.
+Construcción y caché de proyecciones agregadas para workspaces (varios artículos).
 
-La proyeccion usa solo resultados ya procesados por articulo/modelo:
+Para un solo artículo en el panel (sin workspace), ver `article_projection.build_article_aggregate_projection`:
+reutiliza `_accumulate_entity_buckets` y `_project_entity_buckets` de este módulo.
+
+La proyección usa solo resultados ya procesados por artículo/modelo:
 - embeddings_<model>.npz
 - meta del workspace
 
 No vuelve a correr NER ni embeddings del modelo. Agrega entidades
-homonimas entre articulos y proyecta sus centroides en 2D.
+homónimas entre artículos y proyecta sus centroides en 2D.
 """
 
 from __future__ import annotations
@@ -21,7 +24,12 @@ from django.conf import settings
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
-from .combined_results import canonical_model_key, is_combined_model, workspace_combined_occurrence_rows
+from .combined_results import (
+    canonical_model_key,
+    is_combined_model,
+    pad_workspace_concat_embedding,
+    workspace_combined_occurrence_rows,
+)
 from .workspace_service import get_workspace_summary
 
 
@@ -30,25 +38,19 @@ ARTICLES_DIR = DATA_DIR / "articles"
 WORKSPACES_DIR = DATA_DIR / "workspaces"
 
 
-def build_workspace_projection(workspace_id: str, model_key: str) -> dict:
-    model_key = canonical_model_key(model_key)
-    summary = get_workspace_summary(workspace_id)
-    article_name_map = {
-        str(article.get("id")): str(article.get("original_name") or article.get("id"))
-        for article in summary.get("articles", [])
-        if article.get("exists")
-    }
-    processed_articles = [
-        article
-        for article in summary.get("articles", [])
-        if article.get("exists") and article.get("models", {}).get(model_key) == "processed"
-    ]
-
-    cache_path = _workspace_projection_path(workspace_id, model_key)
-    signature = _build_signature(summary, processed_articles, model_key)
-    cached = _read_cached_projection(cache_path)
-    if cached and cached.get("signature") == signature:
-        return cached
+def _accumulate_entity_buckets(
+    processed_articles: list[dict],
+    model_key: str,
+) -> tuple[dict[str, dict], int]:
+    """
+    Acumula buckets de embedding por entidad (misma lógica workspace y artículo aislado).
+    Devuelve (entity_buckets, processed_count).
+    """
+    max_ambos_concat_len = 0
+    if is_combined_model(model_key):
+        for art in processed_articles:
+            for row in workspace_combined_occurrence_rows(art["id"]):
+                max_ambos_concat_len = max(max_ambos_concat_len, int(np.asarray(row["vector"]).size))
 
     entity_buckets: dict[str, dict] = {}
     processed_count = 0
@@ -56,6 +58,8 @@ def build_workspace_projection(workspace_id: str, model_key: str) -> dict:
     for article in processed_articles:
         article_id = article["id"]
         if is_combined_model(model_key):
+            if max_ambos_concat_len <= 0:
+                continue
             rows = workspace_combined_occurrence_rows(article_id)
             if not rows:
                 continue
@@ -64,10 +68,10 @@ def build_workspace_projection(workspace_id: str, model_key: str) -> dict:
                 key = _normalize_entity(row.get("norm_entity") or "")
                 if not key:
                     continue
-                vec = np.asarray(row["vector"], dtype=np.float64)
+                vec = pad_workspace_concat_embedding(row["vector"], max_ambos_concat_len)
                 bucket = entity_buckets.setdefault(key, {
                     "entity": str(row.get("entity_display") or key),
-                    "sum_embedding": np.zeros(vec.shape[0], dtype=np.float64),
+                    "sum_embedding": np.zeros(max_ambos_concat_len, dtype=np.float64),
                     "count": 0,
                     "labels": Counter(),
                     "origins": Counter(),
@@ -119,6 +123,37 @@ def build_workspace_projection(workspace_id: str, model_key: str) -> dict:
             bucket["article_ids"].add(article_id)
             bucket["articles_occurrences"][article_id] += 1
 
+    return entity_buckets, processed_count
+
+
+def build_workspace_projection(workspace_id: str, model_key: str) -> dict:
+    model_key = canonical_model_key(model_key)
+    summary = get_workspace_summary(workspace_id)
+    article_name_map = {
+        str(article.get("id")): str(article.get("original_name") or article.get("id"))
+        for article in summary.get("articles", [])
+        if article.get("exists")
+    }
+    processed_articles = [
+        article
+        for article in summary.get("articles", [])
+        if article.get("exists") and article.get("models", {}).get(model_key) == "processed"
+    ]
+
+    cache_path = _workspace_projection_path(workspace_id, model_key)
+    signature = _build_signature(summary, processed_articles, model_key)
+    cached = _read_cached_projection(cache_path)
+    if cached and cached.get("signature") == signature:
+        # En modo combinado, un cache vacío puede venir de una corrida previa
+        # incompleta; si hay artículos "processed", intentamos recomputar.
+        if not (
+            is_combined_model(model_key)
+            and processed_articles
+            and not (cached.get("points") or [])
+        ):
+            return cached
+
+    entity_buckets, processed_count = _accumulate_entity_buckets(processed_articles, model_key)
     points = _project_entity_buckets(entity_buckets, article_name_map)
     total_entity_occurrences = int(sum(point.get("frequency", 0) for point in points))
     result = {
@@ -263,7 +298,7 @@ def _build_signature(summary: dict, processed_articles: list[dict], model_key: s
             cmt_path = ARTICLES_DIR / article_id / "embeddings_cmt.npz"
             tech_stamp = tech_path.stat().st_mtime_ns if tech_path.exists() else 0
             cmt_stamp = cmt_path.stat().st_mtime_ns if cmt_path.exists() else 0
-            digest.update(f"{article_id}|{tech_stamp}|{cmt_stamp}|ambos_agg_concat_emb_v2".encode("utf-8"))
+            digest.update(f"{article_id}|{tech_stamp}|{cmt_stamp}|ambos_agg_concat_emb_v3_pad_ws".encode("utf-8"))
             continue
         embeddings_path = ARTICLES_DIR / article_id / f"embeddings_{model_key}.npz"
         meta = f"{article_id}|{embeddings_path.stat().st_mtime_ns if embeddings_path.exists() else 0}"

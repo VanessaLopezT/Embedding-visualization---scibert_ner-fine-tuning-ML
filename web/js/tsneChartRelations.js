@@ -12,7 +12,13 @@
  */
 
 import { getColorForLabel, ambosOriginFillColor, ambosSeriesLegendFill } from "./categoryColors.js?v=20260501h";
-import { normalizeArticleFrozenAxis } from "./chartAxisUtils.js?v=20260603c";
+import { scrollPanelElementIntoView } from "./textPanel.js?v=20260603t";
+import {
+  ENTITY_POINT_LABEL_COLOR,
+  WORKSPACE_AXIS_TICK_COLOR,
+  extentFromScatterNodes,
+  normalizeArticleFrozenAxis,
+} from "./chartAxisUtils.js?v=20260606_axis_auto";
 import { relationLineCurveness } from "./relationLineCurveness.js?v=20260601c";
 
 let activeRelationKey = null;
@@ -92,7 +98,15 @@ export function initTSNERelationsChart(chart, data, axisRange = null, options = 
 
   chart.on("click", (params) => {
     const datum = params?.data;
-    if (!datum || !datum.isRelationNode) return;
+    if (!datum) return;
+    if (params?.seriesType === "lines") {
+      const nextKey = pickEdgeFocusKey(datum, activeRelationKey);
+      if (!nextKey) return;
+      activeRelationKey = nextKey;
+      renderRelations(chart, safeData, axisRange, relationOptions);
+      return;
+    }
+    if (!datum.isRelationNode) return;
     if (Number(datum.degree || 0) < 1) {
       return;
     }
@@ -112,8 +126,25 @@ export function resetRelationsSelection() {
 }
 
 function sanitizeOptions(options) {
+  const combinedView = Boolean(options.combinedView);
+  /** Ambos artículo: sin techo práctico; tech/cmt mantiene tope menor para rendimiento visual. */
+  const maxCombinedArticleEdges = 100000;
+  const maxEdges = (() => {
+    const n = Number.parseInt(options.maxEdges, 10);
+    const upper = combinedView ? maxCombinedArticleEdges : 5000;
+    if (combinedView && (!Number.isFinite(n) || n <= 0)) {
+      return upper;
+    }
+    return clampInt(
+      Number.isFinite(n) ? n : DEFAULT_OPTIONS.maxEdges,
+      10,
+      upper,
+      DEFAULT_OPTIONS.maxEdges,
+    );
+  })();
+
   return {
-    combinedView: Boolean(options.combinedView),
+    combinedView,
     minEntityFrequency: clampInt(options.minEntityFrequency, 1, 9999, DEFAULT_OPTIONS.minEntityFrequency),
     minSentenceCooccurrence: Math.max(
       DEFAULT_OPTIONS.minSentenceCooccurrence,
@@ -125,13 +156,25 @@ function sanitizeOptions(options) {
       0.98,
       DEFAULT_OPTIONS.scoreThreshold,
     ),
-    maxEdges: clampInt(options.maxEdges, 10, 5000, DEFAULT_OPTIONS.maxEdges),
+    /** Coincide con workspace_relations (p. ej. CMT_WORKSPACE_RELATION_OPTIONS). */
+    profileTermDamp: clampNumber(
+      options.profileTermDamp ?? 1,
+      0.05,
+      1.5,
+      1,
+    ),
+    associationTermDamp: clampNumber(
+      options.associationTermDamp ?? 1,
+      0.05,
+      1.5,
+      1,
+    ),
+    maxEdges,
     filterMode: ["all", "connected", "low", "medium", "high"].includes(options.filterMode) ? options.filterMode : "all",
   };
 }
 
 function renderRelations(chart, data, axisRange, options) {
-  const axis = normalizeArticleFrozenAxis(axisRange);
   const model = buildRelationModel(data, options);
   const allQuartiles = computeScoreQuartiles(model.edges);
   const tieredModel = {
@@ -164,6 +207,12 @@ function renderRelations(chart, data, axisRange, options) {
     { combinedView: Boolean(options.combinedView) },
   );
   const hasRenderableRelations = filtered.edges.length > 0;
+  /** Ejes a partir de **todos** los nodos del modelo (no solo los visibles tras filtros), mismo pad que workspace artículo. */
+  let axis = normalizeArticleFrozenAxis(axisRange);
+  if (!axis && hasRenderableRelations && model.nodes.length) {
+    const ext = extentFromScatterNodes(model.nodes);
+    axis = ext ? normalizeArticleFrozenAxis(ext, 0.07) : null;
+  }
 
   const option = {
     animation: true,
@@ -218,7 +267,7 @@ function renderRelations(chart, data, axisRange, options) {
       orient: "horizontal",
       textStyle: {
         fontSize: 12,
-        color: "#333",
+        color: ENTITY_POINT_LABEL_COLOR,
         fontWeight: 500
       },
       backgroundColor: legendConfig.backgroundColor,
@@ -264,10 +313,17 @@ function renderRelations(chart, data, axisRange, options) {
     ],
     xAxis: hasRenderableRelations ? {
       type: "value",
+      scale: true,
       ...(axis ? { min: axis.xMin, max: axis.xMax } : {}),
       name: "Dimension 1",
       nameLocation: "middle",
       nameGap: 30,
+      nameTextStyle: {
+        color: ENTITY_POINT_LABEL_COLOR,
+        fontSize: 12,
+        fontWeight: 600,
+      },
+      axisLabel: { color: WORKSPACE_AXIS_TICK_COLOR, fontSize: 11 },
       axisLine: { show: false, lineStyle: { color: "#000000" } },
       axisTick: { show: false },
       splitLine: {
@@ -280,10 +336,17 @@ function renderRelations(chart, data, axisRange, options) {
     },
     yAxis: hasRenderableRelations ? {
       type: "value",
+      scale: true,
       ...(axis ? { min: axis.yMin, max: axis.yMax } : {}),
       name: "Dimension 2",
       nameLocation: "middle",
       nameGap: 40,
+      nameTextStyle: {
+        color: ENTITY_POINT_LABEL_COLOR,
+        fontSize: 12,
+        fontWeight: 600,
+      },
+      axisLabel: { color: WORKSPACE_AXIS_TICK_COLOR, fontSize: 11 },
       axisLine: { show: false, lineStyle: { color: "#000000" } },
       axisTick: { show: false },
       splitLine: {
@@ -359,10 +422,27 @@ function buildArticleLegendConfig(labels = [], opts = {}) {
   };
 }
 
+/**
+ * Como `allowed_keys` en workspace_relations: coocurrencias de contexto sólo cuentan
+ * vecinos que son nodos finales del grafo (tras min frecuencia).
+ */
+function filterContextEntityMap(rawMap, allowedKeys) {
+  const out = new Map();
+  for (const [ctx, entities] of rawMap.entries()) {
+    const filtered = new Set();
+    for (const e of entities) {
+      if (allowedKeys.has(e)) filtered.add(e);
+    }
+    out.set(ctx, filtered);
+  }
+  return out;
+}
+
 function buildRelationModel(data, options) {
+  const combinedView = Boolean(options?.combinedView);
   const aggregateMap = new Map();
-  const sentenceEntityMap = new Map();
-  const chunkEntityMap = new Map();
+  const rawSentenceEntityMap = new Map();
+  const rawChunkEntityMap = new Map();
 
   data.forEach((point) => {
     const entity = String(point?.entity || "").trim();
@@ -377,6 +457,8 @@ function buildRelationModel(data, options) {
         ids: [],
         labelCounts: new Map(),
         sentenceSet: new Set(),
+        /** Solo vista ambos: frases «comparables» entre modelos (misma sentence_id). */
+        crossSentenceSet: new Set(),
         chunkSet: new Set(),
         originCounts: { tech: 0, cmt: 0, joint: 0 },
       });
@@ -393,20 +475,43 @@ function buildRelationModel(data, options) {
     bucket.labelCounts.set(label, (bucket.labelCounts.get(label) || 0) + 1);
 
     if (point?.sentence_id !== undefined && point?.sentence_id !== null) {
-      const sentenceKey = String(point.sentence_id);
-      bucket.sentenceSet.add(sentenceKey);
-      if (!sentenceEntityMap.has(sentenceKey)) sentenceEntityMap.set(sentenceKey, new Set());
-      sentenceEntityMap.get(sentenceKey).add(key);
+      const sid = String(point.sentence_id);
+      if (combinedView) {
+        const origin = String(point?.origin || "joint").toLowerCase();
+        const originSentenceKey = `${origin}::s::${sid}`;
+        const crossSentenceKey = `cross::s::${sid}`;
+        // Evitar mezclar tech:: y cmt:: en el mismo set: inflaba Jaccard y cruces tech×cmt.
+        bucket.sentenceSet.add(originSentenceKey);
+        bucket.crossSentenceSet.add(crossSentenceKey);
+        if (!rawSentenceEntityMap.has(originSentenceKey)) rawSentenceEntityMap.set(originSentenceKey, new Set());
+        rawSentenceEntityMap.get(originSentenceKey).add(key);
+        if (!rawSentenceEntityMap.has(crossSentenceKey)) rawSentenceEntityMap.set(crossSentenceKey, new Set());
+        rawSentenceEntityMap.get(crossSentenceKey).add(key);
+      } else {
+        const sentenceKey = sid;
+        bucket.sentenceSet.add(sentenceKey);
+        if (!rawSentenceEntityMap.has(sentenceKey)) rawSentenceEntityMap.set(sentenceKey, new Set());
+        rawSentenceEntityMap.get(sentenceKey).add(key);
+      }
     }
     if (point?.text_index !== undefined && point?.text_index !== null) {
       const chunkKey = String(point.text_index);
       bucket.chunkSet.add(chunkKey);
-      if (!chunkEntityMap.has(chunkKey)) chunkEntityMap.set(chunkKey, new Set());
-      chunkEntityMap.get(chunkKey).add(key);
+      if (!rawChunkEntityMap.has(chunkKey)) rawChunkEntityMap.set(chunkKey, new Set());
+      rawChunkEntityMap.get(chunkKey).add(key);
     }
   });
 
+  const allowedKeys = new Set();
+  for (const [, bucket] of aggregateMap) {
+    if (bucket.points.length >= options.minEntityFrequency) allowedKeys.add(bucket.key);
+  }
+
+  const sentenceEntityMap = filterContextEntityMap(rawSentenceEntityMap, allowedKeys);
+  const chunkEntityMap = filterContextEntityMap(rawChunkEntityMap, allowedKeys);
+
   let nodes = Array.from(aggregateMap.values())
+    .filter((item) => item.points.length >= options.minEntityFrequency)
     .map((item) => {
       const frequency = item.points.length;
       const centroid = item.points.reduce((acc, point) => {
@@ -442,13 +547,13 @@ function buildRelationModel(data, options) {
         y: centroid.y,
         ids: item.ids,
         sentences: item.sentenceSet,
+        crossSentenceSet: item.crossSentenceSet,
         chunks: item.chunkSet,
         sentenceProfile: buildContextProfile(item.sentenceSet, sentenceEntityMap, item.key),
         chunkProfile: buildContextProfile(item.chunkSet, chunkEntityMap, item.key),
         degree: 0,
       };
     })
-    .filter((node) => node.frequency >= options.minEntityFrequency)
     .sort((a, b) => {
       if (b.frequency !== a.frequency) return b.frequency - a.frequency;
       return a.entity.localeCompare(b.entity);
@@ -494,24 +599,62 @@ function buildRelationModel(data, options) {
   };
 }
 
-function buildEdge(sourceNode, targetNode, options, totals = {}) {
-  const sentenceIntersection = intersectSize(sourceNode.sentences, targetNode.sentences);
-  if (sentenceIntersection < options.minSentenceCooccurrence) return null;
+function crossHubPenaltyArticle(sourceNode, targetNode, gamma = 0.24) {
+  const pk = (p) => (p && typeof p === "object" ? Object.keys(p).length : 0);
+  const hub = Math.max(
+    pk(sourceNode.sentenceProfile) + pk(sourceNode.chunkProfile),
+    pk(targetNode.sentenceProfile) + pk(targetNode.chunkProfile),
+  );
+  if (hub <= 8) return 1;
+  const damp = 1 / (1 + gamma * Math.log1p(hub - 8));
+  return Math.max(0.55, Math.min(1, damp));
+}
 
-  const sentenceUnion = unionSize(sourceNode.sentences, targetNode.sentences);
+function buildEdge(sourceNode, targetNode, options, totals = {}) {
+  const oa = String(sourceNode.dominantOrigin || "joint").toLowerCase();
+  const ob = String(targetNode.dominantOrigin || "joint").toLowerCase();
+  const crossTechCmt =
+    (oa === "tech" && ob === "cmt") || (oa === "cmt" && ob === "tech");
+
+  const crossA = sourceNode.crossSentenceSet || new Set();
+  const crossB = targetNode.crossSentenceSet || new Set();
+
+  let sentenceIntersection;
+  let sentenceUnion;
+  let sCountA;
+  let sCountB;
+  let overlapStrength;
+
+  if (crossTechCmt) {
+    // Alineado con workspace_relations: min 2 coocurrencias de frase comparables;
+    // en un solo artículo no se aplica el atajo «solo chunks» (exige 2+ artículos).
+    sentenceIntersection = intersectSize(crossA, crossB);
+    if (sentenceIntersection < 2) return null;
+    sentenceUnion = unionSize(crossA, crossB);
+    sCountA = Math.max(1, crossA.size);
+    sCountB = Math.max(1, crossB.size);
+    overlapStrength = sentenceIntersection / Math.max(1, Math.min(crossA.size, crossB.size));
+  } else {
+    sentenceIntersection = intersectSize(sourceNode.sentences, targetNode.sentences);
+    if (sentenceIntersection < options.minSentenceCooccurrence) return null;
+    sentenceUnion = unionSize(sourceNode.sentences, targetNode.sentences);
+    sCountA = sourceNode.sentenceCount;
+    sCountB = targetNode.sentenceCount;
+    overlapStrength = sentenceIntersection / Math.max(1, Math.min(sourceNode.sentenceCount, targetNode.sentenceCount));
+  }
+
   const chunkIntersection = intersectSize(sourceNode.chunks, targetNode.chunks);
   const chunkUnion = unionSize(sourceNode.chunks, targetNode.chunks);
 
   const sentenceJaccard = sentenceUnion > 0 ? sentenceIntersection / sentenceUnion : 0;
   const chunkJaccard = chunkUnion > 0 ? chunkIntersection / chunkUnion : 0;
-  const overlapStrength = sentenceIntersection / Math.max(1, Math.min(sourceNode.sentenceCount, targetNode.sentenceCount));
   const profileSentenceCosine = cosineMapSimilarity(sourceNode.sentenceProfile, targetNode.sentenceProfile);
   const profileChunkCosine = cosineMapSimilarity(sourceNode.chunkProfile, targetNode.chunkProfile);
   const profileSimilarity = (0.7 * profileSentenceCosine) + (0.3 * profileChunkCosine);
   const sentenceNpmi = computeNpmi(
     sentenceIntersection,
-    sourceNode.sentenceCount,
-    targetNode.sentenceCount,
+    sCountA,
+    sCountB,
     totals.totalSentenceContexts || 1,
   );
   const chunkNpmi = computeNpmi(
@@ -522,18 +665,29 @@ function buildEdge(sourceNode, targetNode, options, totals = {}) {
   );
   const associationStrength = (0.8 * sentenceNpmi) + (0.2 * chunkNpmi);
 
+  const profileDamp = Number(options.profileTermDamp ?? 1);
+  const assocDamp = Number(options.associationTermDamp ?? 1);
+
   // Afinidad agregada por entidad:
   // - relacion directa: comparten frases/chunks
   // - relacion contextual: se parecen sus vecindarios de coocurrencia
   // - asociacion semantico-contextual: NPMI favorece pares que coaparecen
   //   mas de lo esperado por frecuencia marginal
-  const score =
+  let score =
     (0.25 * sentenceJaccard) +
     (0.15 * chunkJaccard) +
     (0.15 * overlapStrength) +
-    (0.20 * profileSimilarity) +
-    (0.25 * associationStrength);
-  if (score < options.scoreThreshold) return null;
+    (0.20 * profileSimilarity * profileDamp) +
+    (0.25 * associationStrength * assocDamp);
+
+  let threshold = options.scoreThreshold;
+  if (crossTechCmt) {
+    score *= crossHubPenaltyArticle(sourceNode, targetNode);
+    // Más estricto que capas mono (el workspace no relaja tanto en cruce «débil» con 1 artículo).
+    threshold = Math.max(0.2, threshold + 0.08);
+  }
+
+  if (score < threshold) return null;
 
   return {
     key: `${sourceNode.key}__${targetNode.key}`,
@@ -544,6 +698,7 @@ function buildEdge(sourceNode, targetNode, options, totals = {}) {
     coords: [[sourceNode.x, sourceNode.y], [targetNode.x, targetNode.y]],
     score,
     sentenceCooccurrence: sentenceIntersection,
+    crossModelEdge: crossTechCmt,
     sentenceJaccard,
     chunkJaccard,
     profileSimilarity,
@@ -601,6 +756,15 @@ function applyVisibilityFilter(model, filterMode) {
   };
 }
 
+function pickEdgeFocusKey(edge, currentSelectedKey) {
+  const source = String(edge?.source || "").trim();
+  const target = String(edge?.target || "").trim();
+  if (!source || !target) return "";
+  if (currentSelectedKey === source) return target;
+  if (currentSelectedKey === target) return source;
+  return source;
+}
+
 function crossCurvenessBoost(oa, ob) {
   const a = String(oa || "joint").toLowerCase();
   const b = String(ob || "joint").toLowerCase();
@@ -625,6 +789,7 @@ function buildEdgeSeries(edges, quartiles = null, visibleNodeKeys = null, origin
     id: "relations-edges",
     type: "lines",
     coordinateSystem: "cartesian2d",
+    clip: true,
     z: 1,
     silent: false,
     polyline: false,
@@ -705,8 +870,8 @@ function buildNodeSeries(nodes, options = {}) {
       position: "top",
       distance: 6,
       fontSize: 10,
-      color: "#333",
-      fontWeight: "normal"
+      color: ENTITY_POINT_LABEL_COLOR,
+      fontWeight: 500,
     },
     emphasis: {
       focus: "none",
@@ -728,8 +893,8 @@ function buildNodeSeries(nodes, options = {}) {
           borderWidth: node.selected ? 2.4 : 1.2,
         },
         label: {
-          color: "#333",
-          fontWeight: node.selected ? 600 : 400,
+          color: ENTITY_POINT_LABEL_COLOR,
+          fontWeight: node.selected ? 600 : 500,
         },
       };
     }),
@@ -822,7 +987,7 @@ function buildRelationLegend() {
         style: {
           x: 0, y: 1,
           text: "Relación:",
-          fill: "#6b7280",
+          fill: "#374151",
           font: "11px sans-serif",
         },
       },
@@ -839,7 +1004,7 @@ function buildRelationLegend() {
             style: {
               x: x + 20, y: 1,
               text: item.label,
-              fill: "#4b5563",
+              fill: ENTITY_POINT_LABEL_COLOR,
               font: "11px sans-serif",
             },
           },
@@ -872,7 +1037,7 @@ function buildNoRelationsGraphic(filterMode) {
           x: -150,
           y: 16,
           text: message,
-          fill: "#6b7280",
+          fill: "#374151",
           font: "12px sans-serif",
         },
       },
@@ -1003,10 +1168,7 @@ function highlightEntityInPanel(id, entityText = "") {
   if (entityEl) {
     entityEl.classList.add("highlighted");
     const panel = document.getElementById("text-panel");
-    if (panel) {
-      const targetTop = entityEl.offsetTop - (panel.clientHeight / 2) + (entityEl.offsetHeight / 2);
-      panel.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
-    }
+    if (panel) scrollPanelElementIntoView(panel, entityEl);
   }
 }
 

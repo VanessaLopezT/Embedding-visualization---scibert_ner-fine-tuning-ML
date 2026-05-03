@@ -44,6 +44,34 @@ function compareSentenceClusterKeys(ka, kb) {
   return String(ta).localeCompare(String(tb));
 }
 
+/** Misma convención que el backend (`TITLE:` al inicio de línea). */
+function extractTitleLineFromCleaned(cleanedText) {
+  const lines = String(cleanedText || "").split(/\r?\n/);
+  for (let i = 0; i < Math.min(lines.length, 30); i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const m = line.match(/^TITLE:\s*(.+)$/i);
+    if (m) return m[1].trim();
+  }
+  return "";
+}
+
+/**
+ * Desplaza un panel con overflow para centrar un elemento hijo.
+ * `element.offsetTop` no sirve aquí: es relativo a `offsetParent` (p. ej. un párrafo), no al #text-panel.
+ */
+export function scrollPanelElementIntoView(panel, entityEl, options = {}) {
+  if (!panel || !entityEl || typeof panel.getBoundingClientRect !== "function") return;
+  const behavior = options.behavior === "auto" ? "auto" : "smooth";
+  const elRect = entityEl.getBoundingClientRect();
+  const panelRect = panel.getBoundingClientRect();
+  const relativeTop = elRect.top - panelRect.top + panel.scrollTop;
+  const targetTop = relativeTop - panel.clientHeight / 2 + elRect.height / 2;
+  const maxScroll = Math.max(0, panel.scrollHeight - panel.clientHeight);
+  const top = Math.max(0, Math.min(targetTop, maxScroll));
+  panel.scrollTo({ top, behavior });
+}
+
 export function renderText(data, container, externalTitle = null, options = {}) {
   const mode = options.mode === "all" ? "all" : "entities";
   const cleanedText = typeof options.cleanedText === "string" ? options.cleanedText : "";
@@ -53,6 +81,7 @@ export function renderText(data, container, externalTitle = null, options = {}) 
   let titleSentence = null;
 
   const sentenceList = clusterSentenceRecords(data);
+
   sentenceList.forEach(sentence => {
     (sentence.entities || []).forEach(ent => {
       entityMap[ent.id] = ent;
@@ -64,18 +93,29 @@ export function renderText(data, container, externalTitle = null, options = {}) 
   });
 
   const cleanExternalTitle = sanitizeTitle(String(externalTitle || "").trim());
-  const fallbackTitle = titleSentence
+  const titleFromCleanedRaw = extractTitleLineFromCleaned(cleanedText);
+  const titleFromCleaned = titleFromCleanedRaw ? sanitizeTitle(titleFromCleanedRaw) : "";
+  const fallbackTitleFromSentence = titleSentence
     ? sanitizeTitle(String(titleSentence.text || "").replace(/^TITLE:\s*/i, "").trim())
     : "";
-  const titleText = cleanExternalTitle || fallbackTitle;
+  // Mismo aspecto en tech / PatVet / ambos: priorizar título alineado con `cleaned_text.txt`.
+  const titleText = cleanExternalTitle || titleFromCleaned || fallbackTitleFromSentence;
 
   if (titleText) {
+    const titleOccPainted = new Set();
+    const titleIdPainted = new Set();
     const titleRanges = [];
-    const sourceEntities = titleSentence ? (titleSentence.entities || []) : [];
+    const sourceEntities = sortEntitiesByDocPosition(titleSentence ? (titleSentence.entities || []) : []);
     sourceEntities.forEach(ent => {
       const term = ent.entity || "";
       if (!term) return;
-      const matches = findAllMatches(titleText, term);
+      const occurrenceKey = backendOccurrenceKey(ent);
+      if (occurrenceKey && titleOccPainted.has(occurrenceKey)) return;
+      const idStr = ent?.id !== undefined && ent?.id !== null ? String(ent.id) : "";
+      if (idStr && titleIdPainted.has(idStr)) return;
+
+      const matches = entityMatchCandidatesInParagraph(titleText, term);
+      const sid = Number(ent.sentence_id);
       for (const match of matches) {
         if (!overlapsExisting(match, titleRanges)) {
           titleRanges.push({
@@ -83,8 +123,12 @@ export function renderText(data, container, externalTitle = null, options = {}) 
             end: match.end,
             id: ent.id,
             label: ent.label,
-            entity: term
+            entity: term,
+            sentenceId: Number.isFinite(sid) ? Math.round(sid) : undefined,
+            occurrenceKey: occurrenceKey || undefined,
           });
+          if (occurrenceKey) titleOccPainted.add(occurrenceKey);
+          if (idStr) titleIdPainted.add(idStr);
           break;
         }
       }
@@ -118,29 +162,37 @@ export function renderText(data, container, externalTitle = null, options = {}) 
   }
 
   if (mode === "entities" && cleanedText) {
-    if (hasExactEntityOffsets(sentenceList)) {
-      renderExactSentenceBlocks(sentenceList, container, { skipTitle: titleRendered });
-      bindTextInteractions();
-      return;
-    }
-
+    // Mismo cuerpo para Tech, PatVet y vista combinada: `cleanedText` es la fuente única.
+    // No usar `sentence_text` por modelo con offsets (PatVet y Tech pueden diferir del limpio).
+    const bodyOccPainted = new Set();
+    const bodyIdPainted = new Set();
     const paragraphs = buildEntityParagraphs(cleanedText, sentenceList);
     paragraphs.forEach(paragraph => {
       const ranges = [];
-      paragraph.entities.forEach(ent => {
+      sortEntitiesByDocPosition(paragraph.entities).forEach(ent => {
         const term = ent.entity || "";
         if (!term) return;
 
-        const matches = findAllMatches(paragraph.text, term);
-        for (const match of matches) {
+        const occurrenceKey = backendOccurrenceKey(ent);
+        if (occurrenceKey && bodyOccPainted.has(occurrenceKey)) return;
+        const idStr = ent?.id !== undefined && ent?.id !== null ? String(ent.id) : "";
+        if (idStr && bodyIdPainted.has(idStr)) return;
+
+        const matchList = entityMatchCandidatesInParagraph(paragraph.text, term);
+        const sid = Number(ent.sentence_id);
+        for (const match of matchList) {
           if (!overlapsExisting(match, ranges)) {
             ranges.push({
               start: match.start,
               end: match.end,
               id: ent.id,
               label: ent.label,
-              entity: term
+              entity: term,
+              sentenceId: Number.isFinite(sid) ? Math.round(sid) : undefined,
+              occurrenceKey: occurrenceKey || undefined,
             });
+            if (occurrenceKey) bodyOccPainted.add(occurrenceKey);
+            if (idStr) bodyIdPainted.add(idStr);
             break;
           }
         }
@@ -173,11 +225,13 @@ export function renderText(data, container, externalTitle = null, options = {}) 
 
     const ranges = [];
 
-    sentence.entities.forEach(ent => {
+    sortEntitiesByDocPosition(sentence.entities).forEach(ent => {
       const term = ent.entity || "";
       if (!term) return;
 
-      const matches = findAllMatches(text, term);
+      const matches = entityMatchCandidatesInParagraph(text, term);
+      const sid = Number(ent.sentence_id);
+      const occurrenceKey = backendOccurrenceKey(ent);
       for (const match of matches) {
         if (!overlapsExisting(match, ranges)) {
           ranges.push({
@@ -185,7 +239,9 @@ export function renderText(data, container, externalTitle = null, options = {}) 
             end: match.end,
             id: ent.id,
             label: ent.label,
-            entity: term
+            entity: term,
+            sentenceId: Number.isFinite(sid) ? Math.round(sid) : undefined,
+            occurrenceKey: occurrenceKey || undefined,
           });
           break;
         }
@@ -201,68 +257,6 @@ export function renderText(data, container, externalTitle = null, options = {}) 
   });
 
   bindTextInteractions();
-}
-
-function hasExactEntityOffsets(sentenceList) {
-  return Array.isArray(sentenceList) && sentenceList.some(sentence =>
-    Array.isArray(sentence?.entities) && sentence.entities.some(ent =>
-      Number.isInteger(ent?.start) && Number.isInteger(ent?.end)
-    )
-  );
-}
-
-function renderExactSentenceBlocks(sentenceList, container, options = {}) {
-  const skipTitle = Boolean(options.skipTitle);
-
-  sentenceList.forEach(sentence => {
-    const text = String(sentence?.text || "");
-    const isTitle = /^TITLE:\s*/i.test(text.trim());
-    if (isTitle && skipTitle) return;
-
-    const ranges = buildExactRanges(text, sentence.entities || []);
-    if (!ranges.length) return;
-
-    const el = document.createElement(isTitle ? "h3" : "p");
-    if (isTitle) {
-      el.className = "article-title";
-    }
-    el.innerHTML = buildHtmlFromRanges(text, ranges);
-    container.appendChild(el);
-
-    if (isTitle) {
-      const spacer = document.createElement("div");
-      spacer.className = "title-spacer";
-      container.appendChild(spacer);
-    }
-  });
-}
-
-function buildExactRanges(text, entities) {
-  const ranges = [];
-  const sourceText = String(text || "");
-
-  (Array.isArray(entities) ? entities : []).forEach(ent => {
-    const start = Number(ent?.start);
-    const end = Number(ent?.end);
-    if (!Number.isInteger(start) || !Number.isInteger(end)) return;
-    if (start < 0 || end <= start || end > sourceText.length) return;
-
-    ranges.push({
-      start,
-      end,
-      id: ent.id,
-      sentenceId: ent.sentence_id,
-      label: ent.label,
-      entity: ent.entity || sourceText.slice(start, end)
-    });
-  });
-
-  ranges.sort((a, b) => a.start - b.start || a.end - b.end);
-  return ranges.filter((range, index) => {
-    if (index === 0) return true;
-    const prev = ranges[index - 1];
-    return range.start >= prev.end;
-  });
 }
 
 function bindTextInteractions() {
@@ -287,8 +281,86 @@ function findAllMatches(text, term) {
   return matches;
 }
 
+/** Variantes del término para enlazar texto limpio ↔ etiqueta NER (espacios, guiones, etc.). */
+function entityMatchCandidatesInParagraph(paragraphText, term) {
+  const raw = String(term || "").trim();
+  if (!raw) return [];
+  let m = findAllMatches(paragraphText, raw);
+  if (m.length) return m;
+  const collapsed = raw.replace(/\s+/g, " ");
+  if (collapsed !== raw) {
+    m = findAllMatches(paragraphText, collapsed);
+    if (m.length) return m;
+  }
+  const detok = raw.replace(/##/g, "").replace(/\s+/g, " ").trim();
+  if (detok && detok !== raw) {
+    m = findAllMatches(paragraphText, detok);
+    if (m.length) return m;
+  }
+  const norm = normalizeForParagraphMatch(raw);
+  if (norm && norm.length >= 2) {
+    m = findAllMatches(paragraphText, norm);
+    if (m.length) return m;
+  }
+  return [];
+}
+
 function overlapsExisting(range, ranges) {
   return ranges.some(r => range.start < r.end && range.end > r.start);
+}
+
+/**
+ * Clave estable alineada con filas t-SNE/JSON (sentence_id + start/end en frase del modelo).
+ * Distinto de data-start/data-end en el DOM, que son offsets dentro del párrafo renderizado.
+ * No usar Number(null) (sería 0). JSON puede mandar floats enteros (12.0).
+ */
+export function backendOccurrenceKey(ent) {
+  if (ent == null || typeof ent !== "object") return "";
+  const rawSid = ent.sentence_id;
+  const rawSt = ent.start;
+  const rawEn = ent.end;
+  if (rawSid == null || rawSt == null || rawEn == null) return "";
+  const sid = Number(rawSid);
+  const st = Number(rawSt);
+  const en = Number(rawEn);
+  if (!Number.isFinite(sid) || !Number.isFinite(st) || !Number.isFinite(en)) return "";
+  const si = Math.round(sid);
+  const sj = Math.round(st);
+  const sk = Math.round(en);
+  return `${si}|${sj}|${sk}`;
+}
+
+/** Claves presentes en el panel tras renderizar (una fila gráfica ↔ un nodo enlazable). */
+export function collectPaintedEntityKeysFromPanel(panel) {
+  const ids = new Set();
+  const occs = new Set();
+  if (!panel) return { ids, occs };
+  panel.querySelectorAll(".entity[data-id]").forEach((el) => {
+    const v = el.getAttribute("data-id");
+    if (v != null && v !== "") ids.add(String(v));
+  });
+  panel.querySelectorAll(".entity[data-occurrence]").forEach((el) => {
+    const v = el.getAttribute("data-occurrence");
+    if (v != null && v !== "") occs.add(String(v));
+  });
+  return { ids, occs };
+}
+
+/** ¿Existe en el DOM del panel un span para esta fila de datos (id u ocurrencia backend)? */
+export function entityRowLinkedInPanel(row, keys) {
+  if (!keys || (keys.ids.size === 0 && keys.occs.size === 0)) return true;
+  const idStr = row?.id !== undefined && row?.id !== null ? String(row.id) : "";
+  if (idStr && keys.ids.has(idStr)) return true;
+  const occ = backendOccurrenceKey(row);
+  return Boolean(occ && keys.occs.has(occ));
+}
+
+function sortEntitiesByDocPosition(entities) {
+  return [...(entities || [])].sort((a, b) => {
+    const ds = Number(a.sentence_id) - Number(b.sentence_id);
+    if (ds !== 0) return ds;
+    return Number(a.start) - Number(b.start);
+  });
 }
 
 function buildHtmlFromRanges(text, ranges) {
@@ -298,10 +370,14 @@ function buildHtmlFromRanges(text, ranges) {
     if (r.start < cursor) continue;
     result += escapeHtml(text.slice(cursor, r.start));
     const _color = getColorForLabel(r.label);
-    const sentenceAttr = Number.isInteger(r.sentenceId) ? ` data-sentence-id="${r.sentenceId}"` : "";
+    const sidNum = r.sentenceId != null ? Number(r.sentenceId) : NaN;
+    const sentenceAttr = Number.isFinite(sidNum) ? ` data-sentence-id="${Math.round(sidNum)}"` : "";
     const startAttr = Number.isInteger(r.start) ? ` data-start="${r.start}"` : "";
     const endAttr = Number.isInteger(r.end) ? ` data-end="${r.end}"` : "";
-    result += `<span class="entity" data-id="${r.id}"${sentenceAttr}${startAttr}${endAttr} data-entity-key="${escapeHtml(normalizeEntityKey(r.entity || text.slice(r.start, r.end)))}" data-label="${escapeHtml(String(r.label || ""))}" style="color:${_color}; border-bottom: 2px solid ${_color};">${escapeHtml(text.slice(r.start, r.end))}</span>`;
+    const occAttr = r.occurrenceKey
+      ? ` data-occurrence="${escapeHtml(r.occurrenceKey)}"`
+      : "";
+    result += `<span class="entity" data-id="${escapeHtml(String(r.id))}"${sentenceAttr}${startAttr}${endAttr}${occAttr} data-entity-key="${escapeHtml(normalizeEntityKey(r.entity || text.slice(r.start, r.end)))}" data-label="${escapeHtml(String(r.label || ""))}" style="color:${_color}; border-bottom: 2px solid ${_color};">${escapeHtml(text.slice(r.start, r.end))}</span>`;
     cursor = r.end;
   }
   result += escapeHtml(text.slice(cursor));
@@ -332,6 +408,76 @@ export function getEntityParagraphs(data, cleanedText = "") {
   return buildEntityParagraphs(cleanedText, sentenceList);
 }
 
+function entityAlreadyInParagraphs(ent, normalizedParagraphs) {
+  const id = ent?.id;
+  return normalizedParagraphs.some((p) =>
+    (p.entities || []).some((e) => e.id === id),
+  );
+}
+
+/**
+ * Trozos de la frase modelo para enlazar párrafo aunque `cleaned_text` recorte o normalice distinto.
+ */
+function sentenceMatchAnchors(normalizedSentence) {
+  const full = String(normalizedSentence || "").trim();
+  if (!full) return [];
+  const out = [];
+  const push = (s) => {
+    const t = String(s || "").trim();
+    if (t.length < 2) return;
+    if (!out.includes(t)) out.push(t);
+  };
+  push(full);
+  if (full.length > 120) push(full.slice(0, 120));
+  const words = full.split(/\s+/).filter((w) => w.length > 1);
+  if (words.length >= 6) {
+    push(words.slice(0, 6).join(" "));
+    push(words.slice(-6).join(" "));
+  } else if (words.length >= 2) {
+    push(words.join(" "));
+  }
+  return out;
+}
+
+/** Prioridad: párrafos que contienen anclas de `sentence_text` (menos duplicados entre párrafos). */
+function assignEntityOccurrenceBySentence(ent, normalizedParagraphs) {
+  const sentenceText = String(ent?.sentence_text ?? "").trim();
+  const normalizedSentence = sentenceText ? normalizeForParagraphMatch(sentenceText) : "";
+  if (!normalizedSentence) return false;
+
+  const anchors = sentenceMatchAnchors(normalizedSentence);
+  if (!anchors.length) return false;
+
+  let placed = false;
+  normalizedParagraphs.forEach((paragraph) => {
+    if (!anchors.some((a) => paragraph.normalized.includes(a))) return;
+    placed = true;
+    if (!paragraph.entities.some((existing) => existing.id === ent.id)) {
+      paragraph.entities.push(ent);
+    }
+  });
+  return placed;
+}
+
+/**
+ * Si la frase no enlazó, colocar en el **primer** párrafo que contenga el término (una sola vez por id).
+ */
+function assignEntityOccurrenceFallback(ent, normalizedParagraphs) {
+  if (entityAlreadyInParagraphs(ent, normalizedParagraphs)) return;
+
+  const rawEntity = String(ent?.entity || "").trim();
+  if (!rawEntity) return;
+
+  const normalizedEntity = normalizeForParagraphMatch(rawEntity);
+  if (!normalizedEntity) return;
+
+  for (const paragraph of normalizedParagraphs) {
+    if (!paragraph.normalized.includes(normalizedEntity)) continue;
+    paragraph.entities.push(ent);
+    return;
+  }
+}
+
 function buildEntityParagraphs(cleanedText, sentenceList) {
   const paragraphs = extractBodyParagraphsFromCleanedText(cleanedText);
   if (!paragraphs.length) return [];
@@ -353,18 +499,8 @@ function buildEntityParagraphs(cleanedText, sentenceList) {
   });
 
   entityOccurrences.forEach(ent => {
-    const rawEntity = String(ent?.entity || "").trim();
-    if (!rawEntity) return;
-
-    const normalizedEntity = normalizeForParagraphMatch(rawEntity);
-    if (!normalizedEntity) return;
-
-    normalizedParagraphs.forEach(paragraph => {
-      if (!paragraph.normalized.includes(normalizedEntity)) return;
-      if (!paragraph.entities.some(existing => existing.id === ent.id)) {
-        paragraph.entities.push(ent);
-      }
-    });
+    const placed = assignEntityOccurrenceBySentence(ent, normalizedParagraphs);
+    if (!placed) assignEntityOccurrenceFallback(ent, normalizedParagraphs);
   });
 
   return normalizedParagraphs.filter(paragraph => paragraph.entities.length > 0);

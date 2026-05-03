@@ -35,6 +35,7 @@ from .combined_results import (
 )
 from .model_registry import MODEL_REGISTRY
 from .processing_runtime import submit_article_job
+from .article_relations import build_article_relations
 from .workspace_projection import build_workspace_projection
 from .workspace_relations import build_workspace_relations
 from .workspace_service import (
@@ -116,7 +117,10 @@ def _iter_uploaded_files(request) -> list:
 
 
 def index(request):
-    return render(request, "index.html")
+    # Prefijo WSGI/ASGI (p. ej. app montada en /algo/) para que fetch no pida /api/... en el host equivocado
+    script = (request.META.get("SCRIPT_NAME") or "").rstrip("/")
+    api_root = f"{script}/api" if script else "/api"
+    return render(request, "index.html", {"api_root": api_root})
 
 
 @require_http_methods(["GET"])
@@ -455,6 +459,33 @@ def workspace_relations(request, workspace_id):
         return JsonResponse({"error": "Workspace no encontrado"}, status=404)
     except Exception as exc:
         return JsonResponse({"error": f"No se pudieron construir las relaciones del workspace: {exc}"}, status=500)
+
+    return JsonResponse(payload)
+
+
+@require_http_methods(["GET"])
+def article_relations(request, article_id):
+    """
+    Grafo de relaciones para un artículo con la misma lógica que un workspace de un solo miembro.
+    """
+    model_key = canonical_model_key(request.GET.get("model", "tech"))
+    if model_key not in MODEL_REGISTRY and not is_combined_model(model_key):
+        return JsonResponse({"error": f"Modelo desconocido: '{model_key}'"}, status=400)
+
+    aid = str(article_id).strip()
+    if not (ARTICLES_DIR / aid / "meta.json").exists():
+        return JsonResponse({"error": "Artículo no encontrado"}, status=404)
+
+    try:
+        payload = build_article_relations(aid, model_key)
+    except Exception as exc:
+        return JsonResponse(
+            {"error": f"No se pudieron construir las relaciones del artículo: {exc}"},
+            status=500,
+        )
+
+    if payload.get("error") == "missing_article":
+        return JsonResponse(payload, status=404)
 
     return JsonResponse(payload)
 

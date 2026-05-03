@@ -2,6 +2,11 @@
  * Utilidades compartidas para rangos de ejes value (t-SNE, relaciones, etc.).
  */
 
+/** Nombres de entidad sobre puntos: casi negro para leer bien sobre #fafafa */
+export const ENTITY_POINT_LABEL_COLOR = "#111827";
+/** Marcas numéricas de ejes (workspace / gráficas con chartAxisUtils) */
+export const WORKSPACE_AXIS_TICK_COLOR = "#374151";
+
 /**
  * Margen proporcional por eje: los símbolos se miden en px y sobresalen del bbox de datos.
  */
@@ -192,6 +197,17 @@ export function extentFromScatterNodes(nodes) {
 }
 
 /**
+ * Misma clave de agregación que `tsneChartRelations` / `buildRelationModel` (entidad canónica).
+ */
+export function normalizeEntityAggregateKey(raw) {
+  return String(raw || "")
+    .toLowerCase()
+    .replace(/[“”"']/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
  * Ejes workspace: pad proporcional + niceLinearAxisTicks.
  * @param symmetricOrigin `false` bbox+pad · `'origin'` simétrico en 0 · `'square'` cuadrado centrado en la nube (ambos workspace).
  */
@@ -212,14 +228,24 @@ export function workspaceScatterAxesFromExtent(
   const nx = niceLinearAxisTicks(padded.xMin, padded.xMax, splitCount);
   const ny = niceLinearAxisTicks(padded.yMin, padded.yMax, splitCount);
   if (!nx || !ny) return null;
+  const tickLabelStyle = {
+    color: WORKSPACE_AXIS_TICK_COLOR,
+    fontSize: 11,
+  };
   const baseAxis = (name, nameGap) => ({
     type: "value",
     scale: true,
     name,
     nameLocation: "middle",
     nameGap,
+    nameTextStyle: {
+      color: ENTITY_POINT_LABEL_COLOR,
+      fontSize: 12,
+      fontWeight: 600,
+    },
     axisLine: { show: false },
     axisTick: { show: false },
+    axisLabel: tickLabelStyle,
     splitLine: { show: true, lineStyle: { color: "#f0f0f0" } },
   });
   /** Sin `interval` fijo: con dataZoom dentro, el paso bloqueaba el escalado como en articulo (#tsne). */
@@ -233,13 +259,13 @@ export function workspaceScatterAxesFromExtent(
       ...baseAxis("Dimension 1", 30),
       min: nx.min,
       max: nx.max,
-      axisLabel: { formatter: simpleTick },
+      axisLabel: { ...tickLabelStyle, formatter: simpleTick },
     },
     yAxis: {
       ...baseAxis("Dimension 2", 40),
       min: ny.min,
       max: ny.max,
-      axisLabel: { formatter: simpleTick },
+      axisLabel: { ...tickLabelStyle, formatter: simpleTick },
     },
   };
 }

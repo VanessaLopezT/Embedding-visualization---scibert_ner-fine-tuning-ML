@@ -431,7 +431,7 @@
       <label for="workspace-relations-score-range"
         title="Cuanto m&aacute;s alto, m&aacute;s exigente: se muestran menos relaciones, solo entre entidades mejor conectadas."
         style="white-space:nowrap;">Exigencia</label>
-      <input id="workspace-relations-score-range" type="range" min="0.24" max="0.99" step="0.005" value="0.24" />
+      <input id="workspace-relations-score-range" type="range" min="0.05" max="0.99" step="0.005" value="0.24" />
       <span id="workspace-relations-score-value" style="font-size:12px;color:#444;font-variant-numeric:tabular-nums;min-width:2.25em">&mdash;</span>
       <button type="button" class="rel-score-reset-btn" id="workspace-relations-score-reset"
         title="Restaurar exigencia al valor por defecto de esta vista/modelo"
@@ -626,23 +626,25 @@
 
 <script type="module">
   import { loadTSNEData }                                from "{% static 'js/dataLoader.js' %}?v=20260405";
-  import { initTSNEChart }                               from "{% static 'js/tsneChart.js' %}?v=20260603e";
-  import { initTSNEFrequencyChart, resetFrequencyExpansion } from "{% static 'js/tsneChartFrequency.js' %}?v=20260603e";
-  import { initTSNERelationsChart, resetRelationsSelection } from "{% static 'js/tsneChartRelations.js' %}?v=20260603g";
-  import { initWorkspaceAggregateChart, resetWorkspaceAggregateExpansion } from "{% static 'js/workspaceAggregateChart.js' %}?v=20260603d";
-  import { initWorkspaceRelationsChart, resetWorkspaceRelationsSelection } from "{% static 'js/workspaceRelationsChart.js' %}?v=20260603f";
-  import { renderText }                                  from "{% static 'js/textPanel.js' %}?v=20260501c";
+  import { initTSNEChart }                               from "{% static 'js/tsneChart.js' %}?v=20260606_axis_auto";
+  import { initTSNEFrequencyChart, resetFrequencyExpansion } from "{% static 'js/tsneChartFrequency.js' %}?v=20260606_axis_auto";
+  import { initTSNERelationsChart, resetRelationsSelection } from "{% static 'js/tsneChartRelations.js' %}?v=20260606_axis_auto";
+  import { initWorkspaceAggregateChart, resetWorkspaceAggregateExpansion } from "{% static 'js/workspaceAggregateChart.js' %}?v=20260502axis_scale";
+  import { initWorkspaceRelationsChart, resetWorkspaceRelationsSelection } from "{% static 'js/workspaceRelationsChart.js' %}?v=20260607_article_xy_overlay";
+  import { renderText }                                  from "{% static 'js/textPanel.js' %}?v=20260604occ_key";
   import { listWorkspaces, getWorkspace, createWorkspace, updateWorkspaceArticles, processWorkspace, deleteWorkspace } from "{% static 'js/workspaceApi.js' %}?v=20260401";
   import {
     getCachedArticleView,
     setCachedArticleView,
+    getCachedArticleRelations,
+    setCachedArticleRelations,
     invalidateArticleView,
     getCachedWorkspaceAggregate,
     setCachedWorkspaceAggregate,
     getCachedWorkspaceRelations,
     setCachedWorkspaceRelations,
     invalidateWorkspaceView,
-  } from "{% static 'js/viewDataCache.js' %}?v=20260401";
+  } from "{% static 'js/viewDataCache.js' %}?v=20260603article_rel";
 
   // ── URLs de API ──────────────────────────────────────────────────────
   const config = {
@@ -652,6 +654,7 @@
     workspaceAggregateUrl: (id, model) => `/api/workspaces/${id}/aggregate?model=${model}`,
     workspaceRelationsUrl: (id, model) => `/api/workspaces/${id}/relations?model=${model}`,
     tsneUrl:         (id, model) => `/api/articles/${id}/tsne?model=${model}`,
+    articleRelationsUrl: (id, model) => `/api/articles/${id}/relations?model=${model}`,
     metaUrl:         (id)        => `/api/articles/${id}/meta`,
     cleanedTextUrl:  (id)        => `/api/articles/${id}/cleaned-text`,
   };
@@ -674,12 +677,17 @@
   let currentScopeMode = "articles";
   let currentWorkspaceId = "";
   let currentWorkspaceChartMode = "aggregate";
+  /** Para alternar Relaciones ↔ vista workspace anterior (p. ej. General / agregado). */
+  let previousWorkspaceChartMode = "aggregate";
   let workspaceRelationsFilterMode = "all";
   let articleRelationsFilterMode = "all";
   let currentWorkspaceVisibleEdgeCount = 0;
   let workspaceListState = [];
   let currentWorkspaceData = null;
   let currentWorkspaceRelationsPayload = null;
+  /** Grafo de relaciones por artículo (misma fuente que workspace: API relations). */
+  let currentArticleRelationsPayload = null;
+  let articleRelationsHasRenderableNodes = true;
   /** Cancela fetch previos para que una respuesta antigua no pise datos tras varios cambios seguidos. */
   let workspaceChartFetchAbortController = null;
 
@@ -761,8 +769,11 @@
   const LS_REL_MIN_ARTICLE = "ner_rel_min_article_v2";
   const LS_REL_MIN_WS = "ner_rel_min_workspace_v2";
 
-  /** Mismo umbral inicial que usa la vista articulo (`tsneChartRelations`; tech / PatVet / ambos desde el mismo modelo cliente). */
+  /** Piso del control deslizante «Exigencia» (artículo y workspace). */
+  const REL_SCORE_SLIDER_MIN = 0.05;
+  /** Valores por defecto al cargar / restaurar (no el mínimo arrastrable). */
   const DEFAULT_ARTICLE_REL_SCORE = 0.16;
+  const DEFAULT_WORKSPACE_REL_SCORE = 0.24;
 
   function clampSpan(x, lo, hi) {
     const n = Number(x);
@@ -771,50 +782,60 @@
   }
 
   function readStoredRelMin(key, fallback) {
-    try {
-      const v = parseFloat(localStorage.getItem(key));
-      return Number.isFinite(v) ? v : fallback;
-    } catch (_) {
-      return fallback;
-    }
+    // No persistir entre recargas: siempre volver al valor por defecto.
+    return fallback;
   }
 
   /** Slider Exigencia (articulo). */
-  let articleRelationsMinScore = clampSpan(readStoredRelMin(LS_REL_MIN_ARTICLE, DEFAULT_ARTICLE_REL_SCORE), 0.05, 0.95);
+  let articleRelationsMinScore = clampSpan(
+    readStoredRelMin(LS_REL_MIN_ARTICLE, DEFAULT_ARTICLE_REL_SCORE),
+    REL_SCORE_SLIDER_MIN,
+    0.95,
+  );
 
   /** Valor inicial de la barra articulo para el modelo/contexto actual. */
   function getDefaultArticleRelationsMinScore() {
     return DEFAULT_ARTICLE_REL_SCORE;
   }
 
-  /** Workspace: minimo del slider acotado al umbral del servidor (mismo piso tech / PatVet / ambos). */
-  function defaultWorkspaceScoreFloor(payload) {
-    const m = 0.24;
-    const f = Number(payload?.score_threshold_used);
-    return Number.isFinite(f) ? f : m;
-  }
-
-  function syncWorkspaceRelationsScoreSlider(payload) {
+  function syncWorkspaceRelationsScoreSlider(_payload) {
     if (!workspaceRelationsScoreRange || !workspaceRelationsScoreValue) return;
-    const floor = defaultWorkspaceScoreFloor(payload);
-    workspaceRelationsScoreRange.min = String(floor);
+    workspaceRelationsScoreRange.min = String(REL_SCORE_SLIDER_MIN);
     workspaceRelationsScoreRange.max = "0.995";
     workspaceRelationsScoreRange.step = "0.005";
-    let v = readStoredRelMin(LS_REL_MIN_WS, floor);
-    v = clampSpan(v, floor, 0.995);
+    let v = readStoredRelMin(LS_REL_MIN_WS, DEFAULT_WORKSPACE_REL_SCORE);
+    v = clampSpan(v, REL_SCORE_SLIDER_MIN, 0.995);
     workspaceRelationsScoreRange.value = String(v);
     workspaceRelationsScoreValue.textContent = v.toFixed(2);
-    try {
-      localStorage.setItem(LS_REL_MIN_WS, String(v));
-    } catch (_) {}
+    void LS_REL_MIN_WS;
   }
 
-  function readWorkspaceScoreFromUi(payload) {
-    const floor = defaultWorkspaceScoreFloor(payload);
+  function readWorkspaceScoreFromUi(_payload) {
     if (!workspaceRelationsScoreRange) {
-      return clampSpan(readStoredRelMin(LS_REL_MIN_WS, floor), floor, 0.995);
+      return clampSpan(readStoredRelMin(LS_REL_MIN_WS, DEFAULT_WORKSPACE_REL_SCORE), REL_SCORE_SLIDER_MIN, 0.995);
     }
-    return clampSpan(parseFloat(workspaceRelationsScoreRange.value), floor, 0.995);
+    return clampSpan(parseFloat(workspaceRelationsScoreRange.value), REL_SCORE_SLIDER_MIN, 0.995);
+  }
+
+  /** Artículo · Relaciones: mínimo 0.05; por defecto 0.16 (independiente del umbral del API). */
+  function syncArticleRelationsScoreSlider(_payload) {
+    if (!articleRelationsScoreRange || !articleRelationsScoreValue) return;
+    articleRelationsScoreRange.min = String(REL_SCORE_SLIDER_MIN);
+    articleRelationsScoreRange.max = "0.95";
+    articleRelationsScoreRange.step = "0.01";
+    let v = readStoredRelMin(LS_REL_MIN_ARTICLE, DEFAULT_ARTICLE_REL_SCORE);
+    v = clampSpan(v, REL_SCORE_SLIDER_MIN, 0.95);
+    articleRelationsScoreRange.value = String(v);
+    articleRelationsScoreValue.textContent = v.toFixed(2);
+    articleRelationsMinScore = v;
+    void LS_REL_MIN_ARTICLE;
+  }
+
+  function readArticleScoreFromUi(_payload) {
+    if (!articleRelationsScoreRange) {
+      return clampSpan(readStoredRelMin(LS_REL_MIN_ARTICLE, DEFAULT_ARTICLE_REL_SCORE), REL_SCORE_SLIDER_MIN, 0.95);
+    }
+    return clampSpan(parseFloat(articleRelationsScoreRange.value), REL_SCORE_SLIDER_MIN, 0.95);
   }
 
   function workspaceRelationsChartOpts(minScore) {
@@ -839,9 +860,37 @@
     };
   }
 
+  function articleRelationsChartOpts(minScore) {
+    return {
+      /** Misma rejilla / leyenda / tamaño de nodo que vista Original·Relaciones (`tsneChartRelations`). */
+      articleLayout: true,
+      filterMode: articleRelationsFilterMode,
+      combinedView: currentModelKey === "ambos",
+      minScore,
+      /** Mismas (x,y) que Frecuencia/Original: filas t-SNE del artículo en el panel. */
+      clientTsnePoints:
+        currentScopeMode === "articles" && Array.isArray(panelState.data) && panelState.data.length
+          ? panelState.data
+          : null,
+      onRenderSummary: ({ visibleNodeCount, visibleEdgeCount }) => {
+        const vn = Number(visibleNodeCount || 0);
+        const ve = Number(visibleEdgeCount || 0);
+        articleRelationsHasRenderableNodes = vn > 0;
+        if (vn < 1) {
+          setWorkspaceChartSummary("");
+        } else {
+          setWorkspaceChartSummary(
+            `Entidades: ${vn} · Ocurrencias: ${Number(currentArticleRelationsPayload?.total_entity_occurrences || 0)} · Relaciones: ${ve}`
+          );
+        }
+        refreshArticleRelationsFilterVisibility();
+      },
+    };
+  }
+
   function initArticleRelationsScoreUi() {
     if (!articleRelationsScoreRange || !articleRelationsScoreValue) return;
-    articleRelationsScoreRange.min = "0.05";
+    articleRelationsScoreRange.min = String(REL_SCORE_SLIDER_MIN);
     articleRelationsScoreRange.max = "0.95";
     articleRelationsScoreRange.step = "0.01";
     articleRelationsScoreRange.value = String(articleRelationsMinScore);
@@ -851,11 +900,27 @@
 
   articleRelationsScoreRange?.addEventListener("input", () => {
     if (!articleRelationsScoreRange || !articleRelationsScoreValue) return;
-    articleRelationsMinScore = clampSpan(parseFloat(articleRelationsScoreRange.value), 0.05, 0.95);
+    void LS_REL_MIN_ARTICLE;
+    if (
+      currentScopeMode === "articles" &&
+      chartViewMode === "relations" &&
+      currentArticleRelationsPayload &&
+      currentChart
+    ) {
+      const v = clampSpan(parseFloat(articleRelationsScoreRange.value), REL_SCORE_SLIDER_MIN, 0.95);
+      articleRelationsScoreRange.value = String(v);
+      articleRelationsScoreValue.textContent = v.toFixed(2);
+      articleRelationsMinScore = v;
+      initWorkspaceRelationsChart(
+        currentChart,
+        currentArticleRelationsPayload,
+        articleRelationsChartOpts(readArticleScoreFromUi(currentArticleRelationsPayload)),
+      );
+      requestAnimationFrame(() => currentChart.resize());
+      return;
+    }
+    articleRelationsMinScore = clampSpan(parseFloat(articleRelationsScoreRange.value), REL_SCORE_SLIDER_MIN, 0.95);
     articleRelationsScoreValue.textContent = articleRelationsMinScore.toFixed(2);
-    try {
-      localStorage.setItem(LS_REL_MIN_ARTICLE, String(articleRelationsMinScore));
-    } catch (_) {}
     if (currentScopeMode === "articles" && chartViewMode === "relations" && panelState?.data?.length) {
       renderChartByMode(panelState.data);
     }
@@ -863,13 +928,31 @@
 
   document.getElementById("article-relations-score-reset")?.addEventListener("click", (ev) => {
     ev.preventDefault();
-    const d = clampSpan(getDefaultArticleRelationsMinScore(), 0.05, 0.95);
+    void LS_REL_MIN_ARTICLE;
+    if (
+      currentScopeMode === "articles" &&
+      chartViewMode === "relations" &&
+      currentArticleRelationsPayload &&
+      articleRelationsScoreRange &&
+      articleRelationsScoreValue &&
+      currentChart
+    ) {
+      const d0 = clampSpan(DEFAULT_ARTICLE_REL_SCORE, REL_SCORE_SLIDER_MIN, 0.95);
+      articleRelationsScoreRange.value = String(d0);
+      articleRelationsScoreValue.textContent = d0.toFixed(2);
+      articleRelationsMinScore = d0;
+      initWorkspaceRelationsChart(
+        currentChart,
+        currentArticleRelationsPayload,
+        articleRelationsChartOpts(readArticleScoreFromUi(currentArticleRelationsPayload)),
+      );
+      requestAnimationFrame(() => currentChart.resize());
+      return;
+    }
+    const d = clampSpan(getDefaultArticleRelationsMinScore(), REL_SCORE_SLIDER_MIN, 0.95);
     articleRelationsMinScore = d;
     if (articleRelationsScoreRange) articleRelationsScoreRange.value = String(d);
     if (articleRelationsScoreValue) articleRelationsScoreValue.textContent = d.toFixed(2);
-    try {
-      localStorage.setItem(LS_REL_MIN_ARTICLE, String(d));
-    } catch (_) {}
     if (currentScopeMode === "articles" && chartViewMode === "relations" && panelState?.data?.length) {
       renderChartByMode(panelState.data);
     }
@@ -879,12 +962,10 @@
     ev.preventDefault();
     const p = currentWorkspaceRelationsPayload;
     if (!p || !workspaceRelationsScoreRange || !workspaceRelationsScoreValue || !currentChart) return;
-    const floor = defaultWorkspaceScoreFloor(p);
-    workspaceRelationsScoreRange.value = String(floor);
-    workspaceRelationsScoreValue.textContent = floor.toFixed(2);
-    try {
-      localStorage.setItem(LS_REL_MIN_WS, String(floor));
-    } catch (_) {}
+    const w0 = clampSpan(DEFAULT_WORKSPACE_REL_SCORE, REL_SCORE_SLIDER_MIN, 0.995);
+    workspaceRelationsScoreRange.value = String(w0);
+    workspaceRelationsScoreValue.textContent = w0.toFixed(2);
+    void LS_REL_MIN_WS;
     if (currentScopeMode !== "workspaces" || currentWorkspaceChartMode !== "relations") return;
     initWorkspaceRelationsChart(currentChart, p, workspaceRelationsChartOpts(readWorkspaceScoreFromUi(p)));
     requestAnimationFrame(() => currentChart.resize());
@@ -892,13 +973,10 @@
 
   workspaceRelationsScoreRange?.addEventListener("input", () => {
     if (!workspaceRelationsScoreRange || !workspaceRelationsScoreValue || !currentWorkspaceRelationsPayload) return;
-    const floor = defaultWorkspaceScoreFloor(currentWorkspaceRelationsPayload);
-    const v = clampSpan(parseFloat(workspaceRelationsScoreRange.value), floor, 0.995);
+    const v = clampSpan(parseFloat(workspaceRelationsScoreRange.value), REL_SCORE_SLIDER_MIN, 0.995);
     workspaceRelationsScoreRange.value = String(v);
     workspaceRelationsScoreValue.textContent = v.toFixed(2);
-    try {
-      localStorage.setItem(LS_REL_MIN_WS, String(v));
-    } catch (_) {}
+    void LS_REL_MIN_WS;
     if (currentScopeMode !== "workspaces" || currentWorkspaceChartMode !== "relations") return;
     if (!currentChart || !currentWorkspaceRelationsPayload) return;
     initWorkspaceRelationsChart(
@@ -1083,6 +1161,17 @@
     }
   }
 
+  function refreshArticleRelationsFilterVisibility() {
+    const show =
+      chartChromeControlsVisible &&
+      currentScopeMode === "articles" &&
+      chartViewMode === "relations" &&
+      articleRelationsHasRenderableNodes;
+    if (articleRelationsFilterControls) {
+      articleRelationsFilterControls.style.display = show ? "flex" : "none";
+    }
+  }
+
   function setChartChromeVisible(visible) {
     chartChromeControlsVisible = Boolean(visible);
     if (chartViewControls) chartViewControls.hidden = !visible;
@@ -1090,7 +1179,7 @@
     if (chartRelationsHelp) chartRelationsHelp.hidden = !visible || !(currentScopeMode === "workspaces" ? currentWorkspaceChartMode === "relations" : chartViewMode === "relations");
     if (frequencyScaleControls) frequencyScaleControls.style.display = visible && currentScopeMode === "articles" && chartViewMode === "frequency" ? "flex" : "none";
     refreshWorkspaceRelationsFilterVisibility();
-    if (articleRelationsFilterControls) articleRelationsFilterControls.style.display = visible && currentScopeMode === "articles" && chartViewMode === "relations" ? "flex" : "none";
+    refreshArticleRelationsFilterVisibility();
     if (!visible) setWorkspaceChartSummary("");
   }
 
@@ -1110,12 +1199,22 @@
     updateChartSummaryVisibility();
   }
 
-  function applyArticleViewPayload(source, articleId, payload) {
+  function applyArticleViewPayload(source, articleId, payload, options = {}) {
     const data = Array.isArray(payload?.data) ? payload.data : [];
     const totalParagraphs = typeof payload?.totalParagraphs === "number" ? payload.totalParagraphs : null;
     const articleTitle = payload?.articleTitle || null;
     const cleanedText = payload?.cleanedText || "";
+    const forceRefreshRelations = Boolean(options.forceRefresh);
     globalFrequencyReferenceMax = Math.max(globalFrequencyReferenceMax, getMaxEntityFrequency(data));
+
+    /** Antes del gráfico: `articleRelationsChartOpts` usa `panelState.data` como overlay t-SNE. */
+    panelState.source = source;
+    panelState.articleId = articleId;
+    panelState.mode = "entities";
+    panelState.data = data;
+    panelState.totalParagraphs = totalParagraphs;
+    panelState.articleTitle = articleTitle;
+    panelState.cleanedText = cleanedText;
 
     const keepWorkspaceChart = currentScopeMode === "workspaces";
 
@@ -1128,24 +1227,36 @@
 
       resetFrequencyExpansion();
       resetRelationsSelection();
-      renderChartByMode(data);
+      if (currentScopeMode === "articles" && chartViewMode === "relations" && articleId) {
+        void fetchAndRenderArticleRelations(articleId, currentModelKey, {
+          forceRefresh: forceRefreshRelations,
+        });
+      } else {
+        currentArticleRelationsPayload = null;
+        renderChartByMode(data);
+      }
     }
-
-    panelState.source = source;
-    panelState.articleId = articleId;
-    panelState.mode = "entities";
-    panelState.data = data;
-    panelState.totalParagraphs = totalParagraphs;
-    panelState.articleTitle = articleTitle;
-    panelState.cleanedText = cleanedText;
 
     renderCurrentTextPanel();
     if (!keepWorkspaceChart && entitiesSummary) {
-      entitiesSummary.textContent = `Entidades: ${panelState.data.length}`;
+      if (!(currentScopeMode === "articles" && chartViewMode === "relations")) {
+        entitiesSummary.textContent = `Entidades: ${panelState.data.length}`;
+      }
+    }
+
+    // Vista estándar/frecuencia: construir grafo en servidor en paralelo para que «Relaciones» aparezca al instante si ya terminó.
+    if (
+      source === "article" &&
+      articleId &&
+      currentScopeMode === "articles" &&
+      chartViewMode !== "relations"
+    ) {
+      prefetchArticleRelations(articleId, currentModelKey);
     }
   }
 
   function renderEmptyArticleState(message = "Selecciona un artículo para visualizar sus resultados.") {
+    currentArticleRelationsPayload = null;
     const chartDom = document.getElementById("tsne-chart");
     if (currentChart) currentChart.dispose();
     currentChart = null;
@@ -1345,6 +1456,78 @@
     if (entitiesSummary) entitiesSummary.textContent = `Entidades: ${nodes.length}`;
   }
 
+  /**
+   * Precarga el JSON de relaciones del servidor mientras el usuario sigue en vista estándar/frecuencia.
+   * Así el botón «Relaciones» encuentra datos en `viewDataCache` y no espera solo al clic (el TSNE ya se cargó antes).
+   */
+  function prefetchArticleRelations(articleId, modelKey = currentModelKey) {
+    if (!articleId || currentScopeMode !== "articles") return;
+    if (getCachedArticleRelations(articleId, modelKey)) return;
+    void (async () => {
+      try {
+        const response = await fetch(config.articleRelationsUrl(articleId, modelKey));
+        if (!response.ok) return;
+        const body = await response.json();
+        if (!body || body.error) return;
+        setCachedArticleRelations(articleId, modelKey, body);
+      } catch (_) {
+        /* Al cambiar a Relaciones se vuelve a intentar con fetchAndRenderArticleRelations */
+      }
+    })();
+  }
+
+  /**
+   * Vista Artículo · Relaciones: mismas aristas que workspace (`build_article_relations` / `build_workspace_relations`).
+   * Antes el cliente recalculaba desde TSNE (`tsneChartRelations`), distinto al servidor → discrepancias sobre todo en CMT.
+   */
+  async function fetchAndRenderArticleRelations(articleId, modelKey = currentModelKey, options = {}) {
+    if (!articleId || currentScopeMode !== "articles" || !currentChart) return;
+    const forceRefresh = Boolean(options.forceRefresh);
+    resetFrequencyExpansion();
+    resetRelationsSelection();
+    resetWorkspaceRelationsSelection();
+    articleRelationsHasRenderableNodes = false;
+    refreshArticleRelationsFilterVisibility();
+
+    let payload = forceRefresh ? null : getCachedArticleRelations(articleId, modelKey);
+    try {
+      if (!payload) {
+        const url = `${config.articleRelationsUrl(articleId, modelKey)}&_=${Date.now()}`;
+        const response = await fetch(url, { cache: "no-store" });
+        const body = await response.json();
+        if (!response.ok) {
+          throw new Error(body.error || "No se pudieron cargar las relaciones del artículo");
+        }
+        payload = body;
+        setCachedArticleRelations(articleId, modelKey, payload);
+      }
+
+      currentArticleRelationsPayload = payload;
+      const nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
+      articleRelationsHasRenderableNodes = nodes.length > 0;
+
+      syncArticleRelationsScoreSlider(payload);
+      const minScore = readArticleScoreFromUi(payload);
+      initWorkspaceRelationsChart(currentChart, payload, articleRelationsChartOpts(minScore));
+
+      if (entitiesSummary) {
+        entitiesSummary.textContent = `Entidades: ${Number(payload.unique_entity_count || nodes.length || 0)}`;
+      }
+      setChartChromeVisible(true);
+      refreshArticleRelationsFilterVisibility();
+
+      requestAnimationFrame(() => {
+        if (currentChart) currentChart.resize();
+        requestAnimationFrame(() => currentChart?.resize?.());
+      });
+    } catch (err) {
+      console.error(err);
+      articleRelationsHasRenderableNodes = false;
+      currentArticleRelationsPayload = null;
+      alert(err.message || String(err));
+    }
+  }
+
   async function handleWorkspaceNoProcessedArticles(workspaceId, modelKey, payload) {
     const processedCount = Number(payload?.processed_article_count);
     const hasProcessedCount = Number.isFinite(processedCount) && processedCount > 0;
@@ -1355,12 +1538,14 @@
     const isCombinedView = modelKey === "ambos";
     const conflictingJobs = getWorkspaceActiveJobsForOtherModels(currentWorkspaceData, modelKey);
     if (conflictingJobs.length > 0) {
-      const activeModels = Array.from(new Set(conflictingJobs.map(item => item.model))).join(", ");
+      const activeModels = workspaceOtherActiveBaseModelsSummary(currentWorkspaceData, modelKey);
       const tail = isCombinedView
         ? "Espera a que terminen antes de cargar la vista combinada."
         : `Espera a que terminen antes de procesar con "${modelKey}".`;
       renderEmptyWorkspaceState(
-        `Hay artículos de este workspace procesándose con otro modelo (${activeModels}); ${tail}`
+        activeModels
+          ? `Hay artículos de este workspace procesándose con otro modelo (${activeModels}); ${tail}`
+          : `Hay artículos de este workspace procesándose con otro modelo base; ${tail}`
       );
       return false;
     }
@@ -1446,14 +1631,43 @@
     }
   }
 
+  /**
+   * Artículos con cola/proceso activo en un modelo base distinto del solicitado.
+   * Usa `article.models.*` (fuente del resumen workspace), no solo meta.status/model:
+   * si no, el segundo botón por lote seguía «activo» mientras otro modelo corría.
+   */
   function getWorkspaceActiveJobsForOtherModels(workspace, modelKey) {
     if (!workspace || !Array.isArray(workspace.articles)) return [];
-    return workspace.articles.filter(article => {
+    const bases = ["tech", "cmt"];
+    return workspace.articles.filter((article) => {
       if (!article?.exists) return false;
-      const status = String(article.status || "");
-      const activeModel = String(article.model || "");
-      return ["queued", "processing"].includes(status) && activeModel && activeModel !== modelKey;
+      return bases.some((mk) => {
+        if (mk === modelKey) return false;
+        const st = article.models?.[mk];
+        return st === "queued" || st === "processing";
+      });
     });
+  }
+
+  /** Etiquetas de modelos base (TechBERT / PatVetBERT) con trabajo activo distinto de modelKey. */
+  function workspaceOtherActiveBaseModelsSummary(workspace, modelKey) {
+    const labels = new Set();
+    if (!workspace?.articles || !modelKey || modelKey === "ambos") return "";
+    const nameFor = (mk) => (mk === "tech" ? "TechBERT" : mk === "cmt" ? "PatVetBERT" : mk);
+    for (const article of workspace.articles) {
+      if (!article?.exists) continue;
+      for (const mk of ["tech", "cmt"]) {
+        if (mk === modelKey) continue;
+        const st = article.models?.[mk];
+        if (st === "queued" || st === "processing") labels.add(nameFor(mk));
+      }
+    }
+    return Array.from(labels).join(", ");
+  }
+
+  function workspaceQueuedOrProcessingCountForModel(workspace, modelKey) {
+    if (!workspace?.model_summary || !modelKey || modelKey === "ambos") return 0;
+    return Number(workspace.model_summary[modelKey]?.queued_or_processing || 0);
   }
 
   function updateChartModeButton() {
@@ -1540,9 +1754,7 @@
     if (workspaceRelationsFilterControls) {
       workspaceRelationsFilterControls.style.display = "none";
     }
-    if (articleRelationsFilterControls) {
-      articleRelationsFilterControls.style.display = chartViewMode === "relations" ? "flex" : "none";
-    }
+    refreshArticleRelationsFilterVisibility();
   }
 
   function switchChartView(nextMode) {
@@ -1568,12 +1780,20 @@
     
     if (chartViewMode === "relations") {
       resetFrequencyExpansion();
+      resetRelationsSelection();
+      if (currentScopeMode === "articles" && panelState.articleId) {
+        void fetchAndRenderArticleRelations(panelState.articleId, currentModelKey);
+        return;
+      }
       initTSNERelationsChart(currentChart, data, axisRange, {
         minEntityFrequency: 1,
         topEntities: 40,
-        minSentenceCooccurrence: 1,
+        minSentenceCooccurrence: 2,
         scoreThreshold: articleRelationsMinScore,
-        maxEdges: 120,
+        ...(currentModelKey === "cmt"
+          ? { profileTermDamp: 0.62, associationTermDamp: 0.88 }
+          : {}),
+        maxEdges: 240,
         filterMode: articleRelationsFilterMode,
         combinedView: currentModelKey === "ambos",
         onRenderSummary: ({ visibleNodeCount, visibleEdgeCount }) => {
@@ -1671,10 +1891,13 @@
     if (!w) return { blocked: false, reason: "" };
     const conflicts = getWorkspaceActiveJobsForOtherModels(w, modelKey);
     if (conflicts.length) {
-      const activeModels = Array.from(new Set(conflicts.map((item) => item.model))).join(", ");
+      const activeModels = workspaceOtherActiveBaseModelsSummary(w, modelKey);
+      const label = baseModelDisplayName(modelKey);
       return {
         blocked: true,
-        reason: `Hay artículos en cola o procesándose con otro modelo (${activeModels}). Espera a que terminen antes de usar ${modelKey}.`,
+        reason: activeModels
+          ? `Hay artículos en cola o procesándose con otro modelo (${activeModels}). Espera a que terminen antes de usar ${label}.`
+          : `Hay artículos en cola o procesándose con otro modelo base. Espera a que terminen antes de usar ${label}.`,
       };
     }
     return { blocked: false, reason: "" };
@@ -1688,6 +1911,17 @@
     if (isAppProcessingBusy()) {
       return { blocked: true, reason: "Espera a que termine el procesamiento en curso." };
     }
+    const qSame = workspaceQueuedOrProcessingCountForModel(currentWorkspaceData, modelKey);
+    if (qSame > 0) {
+      const label = baseModelDisplayName(modelKey);
+      return {
+        blocked: true,
+        reason:
+          qSame === 1
+            ? `Ya hay un artículo en cola o procesándose con ${label} en este workspace. Espera a que termine.`
+            : `Ya hay ${qSame} artículos en cola o procesándose con ${label}. Espera a que terminen.`,
+      };
+    }
     return workspaceModelConflictBlocked(modelKey);
   }
 
@@ -1699,7 +1933,7 @@
     return `Procesar con ${name} · ${pend}`;
   }
 
-  /** Botones por lote en Gestionar: bloqueo por conflicto de modelo o sin pendientes (no usa isUploadInProgress). */
+  /** Botones por lote en Gestionar: ocupación global, cola del mismo modelo, pendientes y conflicto entre modelos base. */
   function applyWorkspaceEnqueueGuard(btn, modelKey) {
     if (!btn || !modelKey || modelKey === "ambos") return;
     btn.disabled = false;
@@ -1707,6 +1941,15 @@
     if (isAppProcessingBusy()) {
       btn.disabled = true;
       btn.title = "Espera a que termine el procesamiento en curso.";
+      return;
+    }
+    const qSame = workspaceQueuedOrProcessingCountForModel(currentWorkspaceData, modelKey);
+    if (qSame > 0) {
+      btn.disabled = true;
+      btn.title =
+        qSame === 1
+          ? `Ya hay un artículo en cola o procesándose con ${baseModelDisplayName(modelKey)}.`
+          : `Ya hay ${qSame} artículos en cola o procesándose con ${baseModelDisplayName(modelKey)}.`;
       return;
     }
     const pending = Number(btn.getAttribute("data-pending-count") || "0");
@@ -1723,16 +1966,18 @@
   }
 
   function refreshWorkspaceManageModalEnqueueGuards() {
-    if (!workspaceManageModal || workspaceManageModal.style.display !== "flex") return;
+    if (!workspaceManageModal) return;
     workspaceManageModal.querySelectorAll("[data-workspace-enqueue]").forEach((el) => {
       const mk = el.getAttribute("data-workspace-enqueue");
       if (mk) applyWorkspaceEnqueueGuard(el, mk);
     });
     const busy = isAppProcessingBusy();
     workspaceManageModal.querySelectorAll("[data-workspace-row-process]").forEach((btn) => {
-      if (busy) {
+      const mk = btn.getAttribute("data-workspace-row-process");
+      const b = mk && mk !== "ambos" ? workspaceProcessBlockedForModel(mk) : { blocked: false, reason: "" };
+      if (busy || b.blocked) {
         btn.disabled = true;
-        btn.title = "Espera a que termine el procesamiento en curso.";
+        btn.title = busy ? "Espera a que termine el procesamiento en curso." : (b.reason || "");
       } else {
         btn.disabled = false;
         btn.title = "";
@@ -1870,24 +2115,12 @@
     return articles.filter((a) => a.models?.[modelKey] === "missing" || a.models?.[modelKey] === "failed").length;
   }
 
-  function missingBaseModelsForCombinedArticle(article) {
-    const m = article?.models || {};
-    const out = [];
-    if (m.tech !== "processed") out.push("tech");
-    if (m.cmt !== "processed") out.push("cmt");
-    return out;
-  }
-
-  function canOfferProcessFromWorkspaceRow(article, viewModelKey) {
-    if (!article?.exists) return false;
-    const m = article.models || {};
-    if (viewModelKey === "ambos") {
-      if (m.ambos === "processed") return false;
-      if (["queued", "processing"].includes(m.tech) || ["queued", "processing"].includes(m.cmt)) return false;
-      return missingBaseModelsForCombinedArticle(article).length > 0;
-    }
-    const st = m[viewModelKey];
-    if (st === "processed" || st === "queued" || st === "processing") return false;
+  /** Fila Gestionar: permite encolar un modelo base concreto sin depender del selector global. */
+  function canEnqueueProcessModelOnArticle(article, modelKey) {
+    if (!article?.exists || !modelKey || modelKey === "ambos") return false;
+    const st = article.models?.[modelKey];
+    if (st === "processed") return false;
+    if (["queued", "processing"].includes(st)) return false;
     return st === "missing" || st === "failed";
   }
 
@@ -1951,7 +2184,25 @@
       if (source === "article" && articleId) {
         const cachedPayload = forceRefresh ? null : getCachedArticleView(articleId, modelKey);
         if (cachedPayload) {
-          applyArticleViewPayload(source, articleId, cachedPayload);
+          let payload = cachedPayload;
+          if (!String(payload.cleanedText || "").trim()) {
+            try {
+              const cleanedResp = await fetch(config.cleanedTextUrl(articleId));
+              if (cleanedResp.ok) {
+                const cleanedBody = await cleanedResp.json();
+                const t = cleanedBody?.text;
+                if (typeof t === "string" && t.trim()) {
+                  payload = {
+                    ...payload,
+                    cleanedText: t,
+                    totalParagraphs: extractBodyParagraphs(t).length,
+                  };
+                  setCachedArticleView(articleId, modelKey, payload);
+                }
+              }
+            } catch (_) {}
+          }
+          applyArticleViewPayload(source, articleId, payload, { forceRefresh });
           return true;
         }
 
@@ -2022,7 +2273,7 @@
           cleanedText,
         };
         setCachedArticleView(articleId, modelKey, payload);
-        applyArticleViewPayload(source, articleId, payload);
+        applyArticleViewPayload(source, articleId, payload, { forceRefresh });
         return true;
       }
 
@@ -2033,7 +2284,7 @@
         articleTitle: null,
         cleanedText: "",
       };
-      applyArticleViewPayload(source, articleId, payload);
+      applyArticleViewPayload(source, articleId, payload, { forceRefresh });
       return true;
     } catch (error) {
       console.error("Error al cargar datos:", error);
@@ -2084,6 +2335,29 @@
       return workspaceArticleSelect?.value || "";
     }
     return articleSelect?.value || "";
+  }
+
+  /**
+   * Al volver de Workspaces, el selector global de artículos suele seguir en "vacío" porque
+   * el usuario solo eligió el artículo en el desplegable del workspace.
+   */
+  function resolveArticleIdWhenEnteringArticlesMode() {
+    let id = (articleSelect?.value || "").trim();
+    if (id) return id;
+    if (panelState.source === "article" && panelState.articleId) {
+      id = String(panelState.articleId).trim();
+      if (id) return id;
+    }
+    id = (workspaceArticleSelect?.value || "").trim();
+    return id;
+  }
+
+  function syncArticleSelectToIdIfPossible(articleId) {
+    if (!articleSelect || !articleId) return;
+    const has = Array.from(articleSelect.options).some((o) => o.value === String(articleId));
+    if (has) {
+      articleSelect.value = String(articleId);
+    }
   }
 
   function updateWorkspaceButtonsState() {
@@ -2273,34 +2547,34 @@
     actions.style.gap = "6px";
     actions.style.alignItems = "stretch";
 
-    if (listKind === "current" && canOfferProcessFromWorkspaceRow(article, currentModelKey)) {
-      const procBtn = document.createElement("button");
-      procBtn.type = "button";
-      procBtn.textContent = "Procesar…";
-      procBtn.className =
-        currentModelKey === "cmt"
-          ? "process-action-btn process-action-btn--cmt"
-          : "process-action-btn";
-      procBtn.style.padding = "6px 12px";
-      procBtn.style.fontSize = "12px";
-      procBtn.setAttribute("data-workspace-row-process", "1");
-      if (isAppProcessingBusy()) {
-        procBtn.disabled = true;
-        procBtn.title = "Espera a que termine el procesamiento en curso.";
-      }
-      procBtn.addEventListener("click", () => {
-        if (isAppProcessingBusy()) return;
-        if (currentModelKey === "ambos") {
-          showAmbosCombinedMissingModal(
-            article.id,
-            article.original_name || article.id,
-            missingBaseModelsForCombinedArticle(article),
-          );
-        } else {
-          showModelModal(article.id, currentModelKey, article.original_name || article.id);
-        }
+    if (listKind === "current") {
+      ["tech", "cmt"].forEach((mk) => {
+        if (!canEnqueueProcessModelOnArticle(article, mk)) return;
+        const procBtn = document.createElement("button");
+        procBtn.type = "button";
+        procBtn.textContent = mk === "cmt" ? "Procesar PatVet…" : "Procesar Tech…";
+        procBtn.className =
+          mk === "cmt"
+            ? "process-action-btn process-action-btn--cmt"
+            : "process-action-btn";
+        procBtn.style.padding = "6px 12px";
+        procBtn.style.fontSize = "12px";
+        procBtn.setAttribute("data-workspace-row-process", mk);
+        procBtn.addEventListener("click", async () => {
+          if (procBtn.disabled) return;
+          if (isAppProcessingBusy()) return;
+          const b = workspaceProcessBlockedForModel(mk);
+          if (b.blocked) {
+            alert(b.reason);
+            return;
+          }
+          await reprocessArticleWithModel(article.id, mk);
+          if (workspaceManageModal?.style.display === "flex") {
+            await renderWorkspaceManageModal();
+          }
+        });
+        actions.appendChild(procBtn);
       });
-      actions.appendChild(procBtn);
     }
 
     const button = document.createElement("button");
@@ -2344,49 +2618,11 @@
       } else {
         const nTech = countArticlesPendingBaseModel(currentArticles, "tech");
         const nCmt = countArticlesPendingBaseModel(currentArticles, "cmt");
-        if (currentModelKey === "tech" && nTech > 0) {
-          const bar = document.createElement("div");
-          bar.style.cssText =
-            "display:flex;justify-content:flex-end;align-items:center;padding:10px 12px;margin-bottom:10px;background:#f0f7ff;border:1px solid #b6d4fe;border-radius:8px;position:relative;z-index:1;";
-          const b = document.createElement("button");
-          b.type = "button";
-          b.textContent = workspaceBatchProcessButtonLabel("tech", nTech);
-          b.setAttribute("data-workspace-enqueue", "tech");
-          b.setAttribute("data-pending-count", String(nTech));
-          b.className = "process-action-btn";
-          b.style.padding = "7px 14px";
-          b.style.fontSize = "12px";
-          applyWorkspaceEnqueueGuard(b, "tech");
-          b.addEventListener("click", async () => {
-            if (b.disabled || nTech < 1) return;
-            await runWorkspaceBatchProcessFromManage(currentWorkspaceId, "tech");
-          });
-          bar.appendChild(b);
-          workspaceCurrentArticlesEl.appendChild(bar);
-        } else if (currentModelKey === "cmt" && nCmt > 0) {
-          const bar = document.createElement("div");
-          bar.style.cssText =
-            "display:flex;justify-content:flex-end;align-items:center;padding:10px 12px;margin-bottom:10px;background:#f3f0ff;border:1px solid #cfc4f7;border-radius:8px;position:relative;z-index:1;";
-          const b = document.createElement("button");
-          b.type = "button";
-          b.textContent = workspaceBatchProcessButtonLabel("cmt", nCmt);
-          b.setAttribute("data-workspace-enqueue", "cmt");
-          b.setAttribute("data-pending-count", String(nCmt));
-          b.className = "process-action-btn process-action-btn--cmt";
-          b.style.padding = "7px 14px";
-          b.style.fontSize = "12px";
-          applyWorkspaceEnqueueGuard(b, "cmt");
-          b.addEventListener("click", async () => {
-            if (b.disabled || nCmt < 1) return;
-            await runWorkspaceBatchProcessFromManage(currentWorkspaceId, "cmt");
-          });
-          bar.appendChild(b);
-          workspaceCurrentArticlesEl.appendChild(bar);
-        } else if (currentModelKey === "ambos" && currentArticles.length > 0 && (nTech > 0 || nCmt > 0)) {
+        if ((nTech > 0 || nCmt > 0) && currentArticles.length > 0) {
           const bar = document.createElement("div");
           bar.style.cssText =
             "display:flex;flex-wrap:wrap;gap:10px;justify-content:flex-end;align-items:center;padding:10px 12px;margin-bottom:10px;background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;position:relative;z-index:1;";
-          const addBatchBtn = (modelKey, n) => {
+          const addBatchBtn = (modelKey, n, variant) => {
             if (n < 1) return;
             const btn = document.createElement("button");
             btn.type = "button";
@@ -2394,7 +2630,9 @@
             btn.setAttribute("data-workspace-enqueue", modelKey);
             btn.setAttribute("data-pending-count", String(n));
             btn.className =
-              modelKey === "cmt" ? "process-action-btn process-action-btn--cmt" : "process-action-btn";
+              variant === "cmt"
+                ? "process-action-btn process-action-btn--cmt"
+                : "process-action-btn";
             btn.style.padding = "7px 14px";
             btn.style.fontSize = "12px";
             applyWorkspaceEnqueueGuard(btn, modelKey);
@@ -2404,14 +2642,13 @@
             });
             bar.appendChild(btn);
           };
-          addBatchBtn("tech", nTech);
-          addBatchBtn("cmt", nCmt);
+          addBatchBtn("tech", nTech, "tech");
+          addBatchBtn("cmt", nCmt, "cmt");
           if (bar.childNodes.length) workspaceCurrentArticlesEl.appendChild(bar);
         }
 
         currentArticles.forEach(article => {
           workspaceCurrentArticlesEl.appendChild(createWorkspaceArticleRow(article, "Quitar", async () => {
-            showProgress("Actualizando workspace...");
             try {
               await updateWorkspaceArticles(currentWorkspaceId, [article.id], "remove");
               invalidateWorkspaceView(currentWorkspaceId);
@@ -2420,8 +2657,6 @@
               await renderWorkspaceManageModal();
             } catch (error) {
               alert("Error al quitar el artículo del workspace: " + error.message);
-            } finally {
-              hideProgress();
             }
           }, "current"));
         });
@@ -2435,7 +2670,6 @@
       } else {
         availableArticles.forEach(article => {
           workspaceAvailableArticlesEl.appendChild(createWorkspaceArticleRow({ ...article, models: {} }, "Agregar", async () => {
-            showProgress("Actualizando workspace...");
             try {
               await updateWorkspaceArticles(currentWorkspaceId, [article.id], "add");
               invalidateWorkspaceView(currentWorkspaceId);
@@ -2444,13 +2678,13 @@
               await renderWorkspaceManageModal();
             } catch (error) {
               alert("Error al agregar el artículo al workspace: " + error.message);
-            } finally {
-              hideProgress();
             }
           }));
         });
       }
     }
+
+    refreshWorkspaceManageModalEnqueueGuards();
   }
 
   await refreshArticleList();
@@ -2526,12 +2760,18 @@
     currentScopeMode = "articles";
     updateScopeControls();
     updateChartModeButton();
-    const articleId = articleSelect?.value || "";
+    const articleId = resolveArticleIdWhenEnteringArticlesMode();
+    syncArticleSelectToIdIfPossible(articleId);
     if (!articleId) {
       renderEmptyArticleState();
       return;
     }
-    if (panelState.source === "article" && panelState.articleId === articleId && Array.isArray(panelState.data) && panelState.data.length) {
+    const sameCachedArticle =
+      panelState.source === "article" &&
+      String(panelState.articleId || "") === String(articleId) &&
+      Array.isArray(panelState.data) &&
+      panelState.data.length;
+    if (sameCachedArticle) {
       applyArticleViewPayload("article", articleId, panelState);
       return;
     }
@@ -2541,6 +2781,7 @@
 
   modeWorkspacesBtn?.addEventListener("click", async () => {
     resetWorkspaceRelationsSelection();
+    currentArticleRelationsPayload = null;
     currentScopeMode = "workspaces";
     if (currentWorkspaceChartMode !== "relations") {
       currentWorkspaceChartMode = "aggregate";
@@ -2586,6 +2827,7 @@
   });
 
   workspaceViewArticlesBtn?.addEventListener("click", async () => {
+    previousWorkspaceChartMode = "aggregate";
     currentWorkspaceChartMode = "aggregate";
     updateChartModeButton();
     if (currentWorkspaceId) await loadWorkspace(currentWorkspaceId, { forceRefresh: true });
@@ -2660,10 +2902,21 @@
       );
       return;
     }
+    const qp = workspaceQueuedOrProcessingCountForModel(currentWorkspaceData, currentModelKey);
+    if (qp > 0) {
+      alert(
+        `Este workspace ya tiene ${qp} artículo(s) en cola o procesándose con ${baseModelDisplayName(currentModelKey)}. Espera a que terminen.`
+      );
+      return;
+    }
     const conflictingJobs = getWorkspaceActiveJobsForOtherModels(currentWorkspaceData, currentModelKey);
     if (conflictingJobs.length > 0) {
-      const activeModels = Array.from(new Set(conflictingJobs.map(item => item.model))).join(", ");
-      alert(`Hay artículos de este workspace en cola o procesándose con otro modelo (${activeModels}). Espera a que terminen antes de procesar con ${currentModelKey}.`);
+      const activeModels = workspaceOtherActiveBaseModelsSummary(currentWorkspaceData, currentModelKey);
+      alert(
+        activeModels
+          ? `Hay artículos de este workspace en cola o procesándose con otro modelo (${activeModels}). Espera a que terminen antes de procesar con ${baseModelDisplayName(currentModelKey)}.`
+          : "Hay artículos de este workspace en cola o procesándose con otro modelo base. Espera a que terminen."
+      );
       return;
     }
     showProgress("Procesando workspace...");
@@ -2696,7 +2949,13 @@
   chartOriginalBtn?.addEventListener("click", () => {
     if (currentScopeMode === "workspaces") {
       resetWorkspaceRelationsSelection();
-      currentWorkspaceChartMode = "aggregate";
+      // Misma idea que «Vista: Relaciones»: segundo clic restaura la vista anterior.
+      if (currentWorkspaceChartMode === "aggregate") {
+        currentWorkspaceChartMode = previousWorkspaceChartMode || "aggregate";
+      } else {
+        previousWorkspaceChartMode = currentWorkspaceChartMode;
+        currentWorkspaceChartMode = "aggregate";
+      }
       updateChartModeButton();
       if (currentWorkspaceId) {
         loadWorkspace(currentWorkspaceId, { forceRefresh: true });
@@ -2711,6 +2970,7 @@
     if (currentChart && Array.isArray(panelState.data)) {
       resetFrequencyExpansion();
       resetRelationsSelection();
+      currentArticleRelationsPayload = null;
       renderChartByMode(panelState.data);
     }
   });
@@ -2722,6 +2982,7 @@
     if (currentChart && Array.isArray(panelState.data)) {
       resetFrequencyExpansion();
       resetRelationsSelection();
+      currentArticleRelationsPayload = null;
       renderChartByMode(panelState.data);
     }
   });
@@ -2730,7 +2991,12 @@
   chartRelationsBtn?.addEventListener("click", () => {
     if (currentScopeMode === "workspaces") {
       resetWorkspaceRelationsSelection();
-      currentWorkspaceChartMode = "relations";
+      if (currentWorkspaceChartMode === "relations") {
+        currentWorkspaceChartMode = previousWorkspaceChartMode || "aggregate";
+      } else {
+        previousWorkspaceChartMode = currentWorkspaceChartMode;
+        currentWorkspaceChartMode = "relations";
+      }
       updateChartModeButton();
       if (currentWorkspaceId) {
         loadWorkspace(currentWorkspaceId, { forceRefresh: true });
@@ -2741,18 +3007,37 @@
     }
 
     switchChartView("relations");
-    if (chartViewMode !== "relations") resetRelationsSelection();
     updateChartModeButton();
     if (currentChart && Array.isArray(panelState.data)) {
-      renderChartByMode(panelState.data);
+      resetFrequencyExpansion();
+      resetRelationsSelection();
+      if (chartViewMode === "relations") {
+        if (panelState.articleId) {
+          void fetchAndRenderArticleRelations(panelState.articleId, currentModelKey);
+        }
+      } else {
+        currentArticleRelationsPayload = null;
+        renderChartByMode(panelState.data);
+      }
     }
   });
 
   frequencyScaleSelect?.addEventListener("change", () => {
     syncFrequencyScaleModeFromUi();
     if (chartViewMode !== "frequency" || !currentChart || !Array.isArray(panelState.data)) return;
-    // No leer ejes del chart: al encadenarlos el rango se iba estrechando; el rango sale solo de los datos.
-    renderChartByMode(panelState.data);
+    // Evita parpadeo: al cambiar solo la escala no hace falta limpiar/recrear todo el chart.
+    // Re-renderizamos únicamente la vista de frecuencia sobre la misma instancia de ECharts.
+    const axisRange = null;
+    const articleFreqMax = getMaxEntityFrequency(panelState.data);
+    globalFrequencyReferenceMax = Math.max(globalFrequencyReferenceMax, articleFreqMax);
+    setWorkspaceChartSummary(
+      `Entidades: ${Number(getUniqueEntityCount(panelState.data) || 0)} · Ocurrencias: ${Number(panelState.data.length || 0)}`
+    );
+    initTSNEFrequencyChart(currentChart, panelState.data, axisRange, {
+      scaleMode: frequencyScaleMode,
+      globalReferenceMax: Math.max(2, globalFrequencyReferenceMax),
+      combinedView: currentModelKey === "ambos",
+    });
   });
 
     workspaceRelationsFilterSelect?.addEventListener("change", () => {
@@ -2770,9 +3055,20 @@
 
   articleRelationsFilterSelect?.addEventListener("change", () => {
     articleRelationsFilterMode = articleRelationsFilterSelect.value || "all";
-    if (currentScopeMode !== "articles" || chartViewMode !== "relations" || !currentChart || !Array.isArray(panelState.data)) return;
-    // Sin congelar ejes: al cambiar el conjunto de nodos/aristas, min/max fijos recortaban la vista y las líneas parecían salirse.
-    renderChartByMode(panelState.data);
+    if (currentScopeMode !== "articles" || chartViewMode !== "relations" || !currentChart) return;
+    if (currentArticleRelationsPayload) {
+      resetWorkspaceRelationsSelection();
+      initWorkspaceRelationsChart(
+        currentChart,
+        currentArticleRelationsPayload,
+        articleRelationsChartOpts(readArticleScoreFromUi(currentArticleRelationsPayload)),
+      );
+      requestAnimationFrame(() => currentChart.resize());
+      return;
+    }
+    if (Array.isArray(panelState.data) && panelState.data.length) {
+      renderChartByMode(panelState.data);
+    }
   });
 
   // ── Resizer ───────────────────────────────────────────────────────────

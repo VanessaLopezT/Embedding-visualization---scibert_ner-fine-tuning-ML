@@ -58,6 +58,60 @@ def get_missing_base_models_for_article(article_id: str, artifact_type: str = "t
     return missing
 
 
+def _mono_tsne_points_list(article_id: str, model_key: str) -> list[dict]:
+    raw = _read_json_array(_artifact_path(article_id, model_key, "tsne"))
+    if not raw:
+        return []
+    return [p for p in raw if isinstance(p, dict) and p.get("x") is not None and p.get("y") is not None]
+
+
+def _horizontal_shift_second_tsne_cloud(left: list[dict], right: list[dict], margin: float = 8.0) -> None:
+    xs_l = [float(p["x"]) for p in left]
+    xs_r = [float(p["x"]) for p in right]
+    if not xs_l or not xs_r:
+        return
+    shift = max(xs_l) - min(xs_r) + margin
+    for p in right:
+        p["x"] = float(p["x"]) + shift
+
+
+def _mono_tsne_fallback_for_ambos_article(article_id: str) -> list[dict]:
+    """
+    Cuando el emparejamiento concat (workspace_combined_occurrence_rows) no produce filas pero
+    al menos un modelo base sí tiene proyección t-SNE guardada (p. ej. el otro modelo no detectó
+    entidades), reutiliza esos puntos para la vista «ambos» del artículo individual.
+    """
+    tech = _mono_tsne_points_list(article_id, "tech")
+    cmt = _mono_tsne_points_list(article_id, "cmt")
+    if not tech and not cmt:
+        return []
+
+    def stamp(points: list[dict], origin: str, start_id: int) -> tuple[list[dict], int]:
+        out: list[dict] = []
+        i = start_id
+        for p in points:
+            q = dict(p)
+            q["origin"] = origin
+            q["id"] = i
+            i += 1
+            st = q.get("sentence_text")
+            q["sentence_text"] = "" if st is None else str(st)
+            out.append(q)
+        return out, i
+
+    if tech and not cmt:
+        pts, _ = stamp(tech, "tech", 0)
+        return pts
+    if cmt and not tech:
+        pts, _ = stamp(cmt, "cmt", 0)
+        return pts
+
+    tech_pts, next_id = stamp(tech, "tech", 0)
+    cmt_pts, _ = stamp(cmt, "cmt", next_id)
+    _horizontal_shift_second_tsne_cloud(tech_pts, cmt_pts)
+    return tech_pts + cmt_pts
+
+
 def build_combined_article_tsne(article_id: str) -> list[dict]:
     missing = get_missing_base_models_for_article(article_id, "embeddings")
     if missing:
@@ -71,10 +125,25 @@ def build_combined_article_tsne(article_id: str) -> list[dict]:
     if cache_tsne_path.exists() and cached_meta.get("signature") == signature:
         cached = _read_json_array(cache_tsne_path)
         if cached is not None:
-            return cached
+            # Robustez: no persistir un cache vacío "pegado" cuando ya existen
+            # entradas base para reconstruir la vista combinada.
+            if cached:
+                return cached
 
     rows = workspace_combined_occurrence_rows(article_id)
     if not rows:
+        fallback = _mono_tsne_fallback_for_ambos_article(article_id)
+        if fallback:
+            coords_xy = np.array([[float(p["x"]), float(p["y"])] for p in fallback], dtype=np.float64)
+            coords_xy = _combined_center_xy(coords_xy)
+            coords_xy = _combined_scale_xy_visual(coords_xy, target_rms=52.0)
+            for i, p in enumerate(fallback):
+                p["x"] = float(coords_xy[i][0])
+                p["y"] = float(coords_xy[i][1])
+            cache_tsne_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_tsne_path.write_text(json.dumps(fallback, ensure_ascii=False, indent=2), encoding="utf-8")
+            _write_json(cache_meta_path, {"signature": signature, "count": len(fallback)})
+            return fallback
         cache_tsne_path.parent.mkdir(parents=True, exist_ok=True)
         cache_tsne_path.write_text("[]", encoding="utf-8")
         _write_json(cache_meta_path, {"signature": signature, "count": 0})
@@ -119,7 +188,8 @@ def build_combined_article_ner(article_id: str) -> list[dict]:
     if cache_ner_path.exists() and cached_meta.get("signature") == signature:
         cached = _read_json_array(cache_ner_path)
         if cached is not None:
-            return cached
+            if cached:
+                return cached
 
     tech_rows = _read_json_array(_artifact_path(article_id, "tech", "ner")) or []
     cmt_rows = _read_json_array(_artifact_path(article_id, "cmt", "ner")) or []
@@ -206,10 +276,7 @@ def _build_combined_occurrences(model_payloads: dict[str, dict]) -> list[dict]:
     for key in sorted(buckets.keys()):
         tech_items = buckets[key]["tech"]
         cmt_items = buckets[key]["cmt"]
-        pairs = max(len(tech_items), len(cmt_items))
-        for i in range(pairs):
-            tech_item = tech_items[i] if i < len(tech_items) else None
-            cmt_item = cmt_items[i] if i < len(cmt_items) else None
+        for tech_item, cmt_item in _pair_items_by_similarity(tech_items, cmt_items):
             if not tech_item and not cmt_item:
                 continue
             primary = tech_item or cmt_item
@@ -341,6 +408,133 @@ def _build_combined_embedding_buckets(model_payloads: dict[str, dict]) -> defaul
     return buckets
 
 
+def _pair_items_by_similarity(tech_items: list[dict], cmt_items: list[dict]) -> list[tuple[dict | None, dict | None]]:
+    """
+    Empareja ocurrencias tech/cmt dentro del mismo bucket por similitud coseno.
+    Mejora la alineación de la vista combinada cuando hay cantidades distintas
+    o el orden interno de detección no coincide entre modelos.
+    """
+    if not tech_items and not cmt_items:
+        return []
+    if not tech_items:
+        return [(None, item) for item in cmt_items]
+    if not cmt_items:
+        return [(item, None) for item in tech_items]
+
+    sim_pairs: list[tuple[float, int, int]] = []
+    for i, t in enumerate(tech_items):
+        te = np.asarray(t.get("embedding"), dtype=np.float32).reshape(-1)
+        tnorm = float(np.linalg.norm(te))
+        if tnorm < 1e-12:
+            continue
+        for j, c in enumerate(cmt_items):
+            ce = np.asarray(c.get("embedding"), dtype=np.float32).reshape(-1)
+            cnorm = float(np.linalg.norm(ce))
+            if cnorm < 1e-12:
+                continue
+            sim = float(np.dot(te, ce) / (tnorm * cnorm))
+            sim_pairs.append((sim, i, j))
+
+    sim_pairs.sort(key=lambda x: x[0], reverse=True)
+    used_t: set[int] = set()
+    used_c: set[int] = set()
+    out: list[tuple[dict | None, dict | None]] = []
+
+    for _, i, j in sim_pairs:
+        if i in used_t or j in used_c:
+            continue
+        used_t.add(i)
+        used_c.add(j)
+        out.append((tech_items[i], cmt_items[j]))
+
+    for i, item in enumerate(tech_items):
+        if i not in used_t:
+            out.append((item, None))
+    for j, item in enumerate(cmt_items):
+        if j not in used_c:
+            out.append((None, item))
+    return out
+
+
+def _normalize_embeddings_for_combined(emb: np.ndarray) -> np.ndarray:
+    """
+    Normaliza cada espacio de embeddings (tech/cmt) antes de concatenar:
+    - centrado+escalado por dimensión (si hay >=2 filas),
+    - normalización L2 por fila.
+    Esto reduce desbalance de escala entre modelos en la fusión ambos.
+    """
+    arr = np.asarray(emb, dtype=np.float32)
+    if arr.ndim != 2 or arr.size == 0:
+        return arr
+    out = arr.copy()
+    if out.shape[0] >= 2:
+        mean = out.mean(axis=0, keepdims=True)
+        std = out.std(axis=0, keepdims=True)
+        std = np.where(std < 1e-6, 1.0, std)
+        out = (out - mean) / std
+    norms = np.linalg.norm(out, axis=1, keepdims=True)
+    norms = np.where(norms < 1e-12, 1.0, norms)
+    out = out / norms
+    return out.astype(np.float32, copy=False)
+
+
+def _embedding_feature_dim(emb: np.ndarray) -> int:
+    """
+    Columnas de la matriz aunque no haya filas (p. ej. shape (0, 768)).
+    No usar `emb.size`: con 0 filas el size es 0 y se perdia la dimension,
+    generando concat tech+cmt de longitud incorrecta y fallos al agregar en workspace.
+    """
+    arr = np.asarray(emb)
+    if arr.ndim != 2:
+        return 0
+    d = int(arr.shape[1])
+    return d if d > 0 else 0
+
+
+def _paired_concat_embedding_dims(
+    tech_emb: np.ndarray, cmt_emb: np.ndarray
+) -> tuple[int, int]:
+    """
+    dims por modelo para padding al concatenar. Si uno de los NPZ llega corrupto como
+    matriz vacia (0, 0), no sabemos cuantas columnas tendria: se asume la misma anchura
+    que el modelo hermano (tipico BERT mismo hidden), evitando vectors (768,) en vez de (1536,).
+    """
+    te = np.asarray(tech_emb)
+    cm = np.asarray(cmt_emb)
+    dim_tech = _embedding_feature_dim(te)
+    dim_cmt = _embedding_feature_dim(cm)
+    degenerate_te = (
+        dim_tech == 0
+        and te.ndim == 2
+        and te.shape == (0, 0)
+    )
+    degenerate_cm = (
+        dim_cmt == 0
+        and cm.ndim == 2
+        and cm.shape == (0, 0)
+    )
+    if degenerate_te and dim_cmt > 0:
+        dim_tech = dim_cmt
+    if degenerate_cm and dim_tech > 0:
+        dim_cmt = dim_tech
+    return dim_tech, dim_cmt
+
+
+def pad_workspace_concat_embedding(vec: np.ndarray, target_len: int) -> np.ndarray:
+    """
+    Al agrupar varios articulos en workspace (ambos), el concat puede medir lo mismo o no
+    si cambia el modelo o hubo corrupcion en NPZ. Se rellena con ceros al final hasta target_len.
+    """
+    if target_len <= 0:
+        return np.asarray(vec, dtype=np.float64).reshape(-1)
+    v = np.asarray(vec, dtype=np.float64).reshape(-1)
+    if v.size >= target_len:
+        return v[:target_len].copy()
+    out = np.zeros(target_len)
+    out[: v.size] = v
+    return out
+
+
 def workspace_combined_occurrence_rows(article_id: str) -> list[dict]:
     """
     Ocurrencias alineadas tech/cmt para agregar el workspace en modo ambos: cada fila trae un vector
@@ -353,13 +547,18 @@ def workspace_combined_occurrence_rows(article_id: str) -> list[dict]:
         model_key: _load_embeddings_payload(article_id, model_key)
         for model_key in BASE_MODEL_KEYS
     }
+    for model_key in BASE_MODEL_KEYS:
+        model_payloads[model_key]["embeddings"] = _normalize_embeddings_for_combined(
+            model_payloads[model_key]["embeddings"],
+        )
     tech_emb = model_payloads["tech"]["embeddings"]
     cmt_emb = model_payloads["cmt"]["embeddings"]
     if tech_emb.size == 0 and cmt_emb.size == 0:
         return []
 
-    dim_tech = int(model_payloads["tech"]["embeddings"].shape[1]) if model_payloads["tech"]["embeddings"].size else 0
-    dim_cmt = int(model_payloads["cmt"]["embeddings"].shape[1]) if model_payloads["cmt"]["embeddings"].size else 0
+    dim_tech, dim_cmt = _paired_concat_embedding_dims(tech_emb, cmt_emb)
+    if dim_tech <= 0 or dim_cmt <= 0:
+        return []
     zero_tech = np.zeros((dim_tech,), dtype=np.float32)
     zero_cmt = np.zeros((dim_cmt,), dtype=np.float32)
 
@@ -368,10 +567,7 @@ def workspace_combined_occurrence_rows(article_id: str) -> list[dict]:
     for key in sorted(buckets.keys()):
         tech_items = buckets[key]["tech"]
         cmt_items = buckets[key]["cmt"]
-        pairs = max(len(tech_items), len(cmt_items))
-        for i in range(pairs):
-            tech_item = tech_items[i] if i < len(tech_items) else None
-            cmt_item = cmt_items[i] if i < len(cmt_items) else None
+        for tech_item, cmt_item in _pair_items_by_similarity(tech_items, cmt_items):
             if not tech_item and not cmt_item:
                 continue
             tech_e = tech_item["embedding"] if tech_item else zero_tech
@@ -398,24 +594,52 @@ def workspace_combined_points_for_relations(article_id: str) -> list[dict]:
     """
     Ocurrencias alineadas tech/cmt sin vectores: mismo conjunto que workspace_combined_occurrence_rows,
     en forma compatible con el bucle de coocurrencia de workspace_relaciones (antes build_combined_article_tsne).
+
+    Si el emparejamiento concat no produce filas pero sí hay puntos en tsne_tech/tsne_cmt (un modelo sin
+    entidades), se reutilizan esos puntos como fuente de coocurrencias para la vista ambos.
     """
     rows = workspace_combined_occurrence_rows(article_id)
-    return [
-        {
-            "entity": str(r["entity_display"] or "").strip(),
-            "label": str(r.get("label") or "UNKNOWN"),
-            "origin": str(r.get("origin") or "joint"),
-            "sentence_id": r.get("sentence_id"),
-            "text_index": r.get("text_index"),
-        }
-        for r in rows
-    ]
+    if rows:
+        return [
+            {
+                "entity": str(r["entity_display"] or "").strip(),
+                "label": str(r.get("label") or "UNKNOWN"),
+                "origin": str(r.get("origin") or "joint"),
+                "sentence_id": r.get("sentence_id"),
+                "text_index": r.get("text_index"),
+            }
+            for r in rows
+        ]
+
+    out: list[dict] = []
+    for mk in BASE_MODEL_KEYS:
+        lst = _read_json_array(_artifact_path(article_id, mk, "tsne")) or []
+        if not isinstance(lst, list):
+            continue
+        for p in lst:
+            if not isinstance(p, dict):
+                continue
+            ent = str(p.get("entity") or "").strip()
+            if not ent:
+                continue
+            out.append({
+                "entity": ent,
+                "label": str(p.get("label") or "UNKNOWN"),
+                "origin": str(mk),
+                "sentence_id": p.get("sentence_id"),
+                "text_index": p.get("text_index"),
+            })
+    return out
 
 
 def _planar_coords_from_concat_fallback(model_payloads: dict[str, dict], points: list[dict]) -> list[tuple[float, float]]:
     """Reserva: concatenación + PCA/t-SNE (rompe semántica con ceros; solo si falla la fusión)."""
-    dim_tech = int(model_payloads["tech"]["embeddings"].shape[1]) if model_payloads["tech"]["embeddings"].size else 0
-    dim_cmt = int(model_payloads["cmt"]["embeddings"].shape[1]) if model_payloads["cmt"]["embeddings"].size else 0
+    dim_tech, dim_cmt = _paired_concat_embedding_dims(
+        model_payloads["tech"]["embeddings"],
+        model_payloads["cmt"]["embeddings"],
+    )
+    if dim_tech <= 0 or dim_cmt <= 0:
+        return [(0.5, 0.5)] * len(points)
     zero_tech = np.zeros((dim_tech,), dtype=np.float32)
     zero_cmt = np.zeros((dim_cmt,), dtype=np.float32)
     buckets = _build_combined_embedding_buckets(model_payloads)
@@ -423,10 +647,7 @@ def _planar_coords_from_concat_fallback(model_payloads: dict[str, dict], points:
     for key in sorted(buckets.keys()):
         tech_items = buckets[key]["tech"]
         cmt_items = buckets[key]["cmt"]
-        pairs = max(len(tech_items), len(cmt_items))
-        for i in range(pairs):
-            tech_item = tech_items[i] if i < len(tech_items) else None
-            cmt_item = cmt_items[i] if i < len(cmt_items) else None
+        for tech_item, cmt_item in _pair_items_by_similarity(tech_items, cmt_items):
             if not tech_item and not cmt_item:
                 continue
             tech_emb = tech_item["embedding"] if tech_item else zero_tech
@@ -558,7 +779,7 @@ def _reduce_to_2d(matrix: np.ndarray) -> np.ndarray:
 def _build_combined_signature(article_id: str) -> str:
     digest = hashlib.sha256()
     digest.update(CANONICAL_COMBINED_KEY.encode("utf-8"))
-    digest.update(b"|tsne_article_concat_emb_rms_v3|")
+    digest.update(b"|tsne_article_concat_emb_norm_pairing_v4|")
     for model_key in BASE_MODEL_KEYS:
         for artifact_type in ("embeddings", "ner", "tsne"):
             path = _artifact_path(article_id, model_key, artifact_type)

@@ -34,6 +34,7 @@ PROCESSING_DIR = settings.BASE_DIR / "processing"
 ARTICLES_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_ACTIVE_JOBS = max(1, int(getattr(settings, "PROCESSING_MAX_ACTIVE_JOBS", 1)))
+# Espera en la cola sin nuevos trabajos antes de descargar el modelo (no limita cuánto puede durar un job ya en ejecución).
 WORKER_IDLE_SECONDS = max(60, int(getattr(settings, "PROCESSING_WORKER_IDLE_SECONDS", 600)))
 _ACTIVE_JOB_SEMAPHORE = threading.BoundedSemaphore(MAX_ACTIVE_JOBS)
 
@@ -124,6 +125,7 @@ class ModelWorker(threading.Thread):
             try:
                 job = self._jobs.get(timeout=WORKER_IDLE_SECONDS)
             except queue.Empty:
+                # Cola vacía durante WORKER_IDLE_SECONDS: liberar memoria del modelo hasta el próximo trabajo.
                 self._reset_processor()
                 continue
             try:

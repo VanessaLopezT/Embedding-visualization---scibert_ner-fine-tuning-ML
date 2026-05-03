@@ -5,9 +5,18 @@
  */
 
 import { getColorForLabel, ambosOriginFillColor, ambosSeriesLegendFill } from "./categoryColors.js?v=20260501h";
+import {
+  ENTITY_POINT_LABEL_COLOR,
+  WORKSPACE_AXIS_TICK_COLOR,
+  normalizeEntityAggregateKey,
+} from "./chartAxisUtils.js?v=20260606_axis_auto";
+import {
+  backendOccurrenceKey,
+  scrollPanelElementIntoView,
+} from "./textPanel.js?v=20260603t";
 
 let expandedEntityKey = null;
-/** Igual que vista Original (`tsneChart.js`): solo min/max si el caller pasa `axisRange`; si no, ECharts escala solo. */
+/** Igual que vista Original: min/max solo si el caller pasa `axisRange`; si no, ECharts escala al dato. */
 let frequencyAxisRange = null;
 const ARTICLE_LEGEND_WIDTH_TECH = "auto";
 const ARTICLE_LEGEND_WIDTH_CMT = "56%";
@@ -20,6 +29,7 @@ let frequencyScaleOptions = {
 };
 
 export function initTSNEFrequencyChart(chart, data, axisRange = null, options = {}) {
+  const safeData = Array.isArray(data) ? data : [];
   frequencyAxisRange = axisRange || null;
   frequencyScaleOptions = {
     scaleMode: options.scaleMode === "global" ? "global" : "article",
@@ -28,8 +38,6 @@ export function initTSNEFrequencyChart(chart, data, axisRange = null, options = 
       : 30,
     combinedView: Boolean(options.combinedView),
   };
-  const safeData = Array.isArray(data) ? data : [];
-
   // Validar si no hay datos de entidades
   if (safeData.length === 0) {
     chart.setOption({
@@ -74,16 +82,16 @@ export function initTSNEFrequencyChart(chart, data, axisRange = null, options = 
 
   chart.on("mouseover", (params) => {
     if (!params.data) return;
-    if (params.data.id !== undefined) {
-      highlightEntityInPanel(params.data);
-      return;
+    const d = params.data;
+    // Agregado con varias ocurrencias: no hay un solo span que resaltar.
+    if (d.isAggregate && Number(d.frequency || 0) > 1) return;
+    let target = d;
+    if (d.isAggregate) {
+      const only = Array.isArray(d.occurrences) ? d.occurrences[0] : null;
+      if (!only) return;
+      target = only;
     }
-    if (params.data.isAggregate && Number(params.data.frequency || 0) <= 1) {
-      const only = Array.isArray(params.data.occurrences) ? params.data.occurrences[0] : null;
-      if (only && only.id !== undefined) {
-        highlightEntityInPanel(only);
-      }
-    }
+    highlightEntityInPanel(target);
   });
 
   chart.on("mouseout", () => {
@@ -95,9 +103,7 @@ export function initTSNEFrequencyChart(chart, data, axisRange = null, options = 
     if (params.data.isAggregate) {
       if (Number(params.data.frequency || 0) <= 1) {
         const only = Array.isArray(params.data.occurrences) ? params.data.occurrences[0] : null;
-        if (only && only.id !== undefined) {
-          highlightEntityInPanel(only);
-        }
+        if (only) highlightEntityInPanel(only);
         return;
       }
       try {
@@ -109,10 +115,8 @@ export function initTSNEFrequencyChart(chart, data, axisRange = null, options = 
       return;
     }
     if (params.data.isOccurrence) {
-      // Click en bolita pequena: seleccionar y colapsar.
-      if (params.data.id !== undefined) {
-        highlightEntityInPanel(params.data);
-      }
+      // Click en bolita pequena: seleccionar y colapsar (enlace por id o data-occurrence).
+      highlightEntityInPanel(params.data);
       expandedEntityKey = null;
       try {
         chart.dispatchAction({ type: "downplay", seriesIndex: "all" });
@@ -183,18 +187,23 @@ function getEventOffset(evt) {
 
 function renderFrequency(chart, data) {
   const axisRange = frequencyAxisRange || null;
-  const series = buildFrequencySeries(data, expandedEntityKey, frequencyScaleOptions);
+  // Siempre el dataset completo del modelo (solo dedupe por id/clave backend); no filtrar por DOM.
+  const rows = dedupeFrequencyRows(data);
+  const series = buildFrequencySeries(rows, expandedEntityKey, frequencyScaleOptions);
+  const zoomState = readFrequencyDataZoomState(chart);
 
   const legendConfig = buildArticleLegendConfig(
-    data.map((point) => point?.label),
+    rows.map((point) => point?.label),
     { combinedView: Boolean(frequencyScaleOptions.combinedView) },
   );
 
   const option = {
     animation: true,
     animationDuration: 350,
-    animationDurationUpdate: 350,
+    // Al expandir/colapsar un nodo no queremos desplazar el resto por tweening.
+    animationDurationUpdate: 0,
     animationEasing: "cubicOut",
+    animationEasingUpdate: "linear",
     tooltip: {
       show: true,
       formatter: function(p) {
@@ -227,7 +236,7 @@ function renderFrequency(chart, data) {
       orient: "horizontal",
       textStyle: {
         fontSize: 12,
-        color: "#333",
+        color: ENTITY_POINT_LABEL_COLOR,
         fontWeight: 500
       },
       backgroundColor: legendConfig.backgroundColor,
@@ -251,8 +260,8 @@ function renderFrequency(chart, data) {
       {
         type: "inside",
         xAxisIndex: [0],
-        start: 0,
-        end: 100,
+        start: zoomState?.x?.start ?? 0,
+        end: zoomState?.x?.end ?? 100,
         zoomOnMouseWheel: true,
         moveOnMouseMove: true,
         moveOnMouseWheel: false,
@@ -262,8 +271,8 @@ function renderFrequency(chart, data) {
       {
         type: "inside",
         yAxisIndex: [0],
-        start: 0,
-        end: 100,
+        start: zoomState?.y?.start ?? 0,
+        end: zoomState?.y?.end ?? 100,
         zoomOnMouseWheel: true,
         moveOnMouseMove: true,
         moveOnMouseWheel: false,
@@ -273,10 +282,17 @@ function renderFrequency(chart, data) {
     ],
     xAxis: {
       type: "value",
+      scale: true,
       ...(axisRange ? { min: axisRange.xMin, max: axisRange.xMax } : {}),
       name: "Dimensi\u00F3n 1",
       nameLocation: "middle",
       nameGap: 30,
+      nameTextStyle: {
+        color: ENTITY_POINT_LABEL_COLOR,
+        fontSize: 12,
+        fontWeight: 600,
+      },
+      axisLabel: { color: WORKSPACE_AXIS_TICK_COLOR, fontSize: 11 },
       axisLine: { show: false, lineStyle: { color: "#000000" } },
       axisTick: { show: false },
       splitLine: {
@@ -286,10 +302,17 @@ function renderFrequency(chart, data) {
     },
     yAxis: {
       type: "value",
+      scale: true,
       ...(axisRange ? { min: axisRange.yMin, max: axisRange.yMax } : {}),
       name: "Dimensi\u00F3n 2",
       nameLocation: "middle",
       nameGap: 40,
+      nameTextStyle: {
+        color: ENTITY_POINT_LABEL_COLOR,
+        fontSize: 12,
+        fontWeight: 600,
+      },
+      axisLabel: { color: WORKSPACE_AXIS_TICK_COLOR, fontSize: 11 },
       axisLine: { show: false, lineStyle: { color: "#000000" } },
       axisTick: { show: false },
       splitLine: {
@@ -301,6 +324,28 @@ function renderFrequency(chart, data) {
   };
 
   chart.setOption(option, true);
+}
+
+function readFrequencyDataZoomState(chart) {
+  if (!chart || typeof chart.getOption !== "function") return null;
+  try {
+    const opt = chart.getOption();
+    const dz = Array.isArray(opt?.dataZoom) ? opt.dataZoom : [];
+    const x = dz.find((z) => Array.isArray(z?.xAxisIndex) && z.xAxisIndex.includes(0));
+    const y = dz.find((z) => Array.isArray(z?.yAxisIndex) && z.yAxisIndex.includes(0));
+    return {
+      x: {
+        start: Number.isFinite(Number(x?.start)) ? Number(x.start) : 0,
+        end: Number.isFinite(Number(x?.end)) ? Number(x.end) : 100,
+      },
+      y: {
+        start: Number.isFinite(Number(y?.start)) ? Number(y.start) : 0,
+        end: Number.isFinite(Number(y?.end)) ? Number(y.end) : 100,
+      },
+    };
+  } catch (_) {
+    return null;
+  }
 }
 
 function buildArticleLegendConfig(labels = [], opts = {}) {
@@ -346,13 +391,30 @@ function _pickDominantOrigin(originCounts) {
   return "joint";
 }
 
-function buildFrequencySeries(data, expandedKey, scaleOptions = {}) {
+/** Evita la misma ocurrencia dos veces en el agregado (misma id o misma clave backend). */
+function dedupeFrequencyRows(data) {
+  const seen = new Set();
+  const out = [];
+  for (const p of Array.isArray(data) ? data : []) {
+    const occ = backendOccurrenceKey(p);
+    const k = occ || (p?.id !== undefined && p?.id !== null ? `id:${String(p.id)}` : null);
+    if (k) {
+      if (seen.has(k)) continue;
+      seen.add(k);
+    }
+    out.push(p);
+  }
+  return out;
+}
+
+function buildFrequencySeries(rows, expandedKey, scaleOptions = {}) {
   const combinedView = Boolean(scaleOptions.combinedView);
+
   const aggregateMap = new Map();
-  data.forEach(p => {
+  rows.forEach(p => {
     const raw = String(p.entity || "").trim();
     if (!raw) return;
-    const key = raw.toLowerCase().replace(/\s+/g, " ");
+    const key = normalizeEntityAggregateKey(raw);
     if (!aggregateMap.has(key)) {
       aggregateMap.set(key, {
         key,
@@ -455,7 +517,15 @@ function buildFrequencySeries(data, expandedKey, scaleOptions = {}) {
     const expanded = aggregates.find(item => item.key === expandedKey);
     if (expanded && expanded.occurrences.length) {
       if (!groupedByLabel[expanded.label]) groupedByLabel[expanded.label] = [];
+      const seenExp = new Set();
       expanded.occurrences.forEach((p) => {
+        const occ = backendOccurrenceKey(p);
+        const kid = p?.id !== undefined && p?.id !== null ? `id:${String(p.id)}` : null;
+        const ek = occ || kid;
+        if (ek) {
+          if (seenExp.has(ek)) return;
+          seenExp.add(ek);
+        }
         groupedByLabel[expanded.label].push({
           value: [Number(p.x || 0), Number(p.y || 0)],
           id: p.id,
@@ -469,7 +539,7 @@ function buildFrequencySeries(data, expandedKey, scaleOptions = {}) {
           end: p.end,
           isOccurrence: true,
           parentKey: expanded.key,
-          symbolSize: 9,
+          symbolSize: 12,
           symbol: "circle",
           itemStyle: combinedView ? {
             color: ambosOriginFillColor(p.label, p.origin),
@@ -515,8 +585,8 @@ function buildFrequencySeries(data, expandedKey, scaleOptions = {}) {
       position: "top",
       distance: 6,
       fontSize: 10,
-      color: "#333",
-      fontWeight: "normal"
+      color: ENTITY_POINT_LABEL_COLOR,
+      fontWeight: 500,
     },
     emphasis: {
       focus: "series",
@@ -531,32 +601,110 @@ function highlightEntityInPanel(datum) {
   if (entityEl) {
     entityEl.classList.add("highlighted");
     const panel = document.getElementById("text-panel");
-    if (panel) {
-      const targetTop = entityEl.offsetTop - (panel.clientHeight / 2) + (entityEl.offsetHeight / 2);
-      panel.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
-    }
+    if (panel) scrollPanelElementIntoView(panel, entityEl);
   }
 }
 
-function findEntityElement(datum) {
-  const id = datum?.id;
-  const entityText = datum?.entity || "";
-  const sentenceId = Number(datum?.sentence_id);
-  const start = Number(datum?.start);
-  const end = Number(datum?.end);
+/**
+ * Si hay varias marcas iguales en la misma frase: desambiguar por etiqueta,
+ * luego por data-occurrence (misma clave que la fila del gráfico).
+ */
+function findEntityElementBySentenceEntityKey(panel, datum) {
+  const sidRaw = datum?.sentence_id;
+  if (sidRaw == null || !Number.isFinite(Number(sidRaw))) return null;
+  const sidAttr = String(Math.round(Number(sidRaw)));
+  const entityKey = normalizeEntityKey(datum?.entity || "");
+  if (!entityKey) return null;
+  const label = String(datum?.label ?? "").trim();
+  const occWant = backendOccurrenceKey(datum);
+  const hits = [];
+  for (const el of panel.querySelectorAll(".entity[data-entity-key]")) {
+    if (el.getAttribute("data-sentence-id") !== sidAttr) continue;
+    if (el.getAttribute("data-entity-key") !== entityKey) continue;
+    hits.push(el);
+  }
+  if (hits.length === 0) return null;
 
-  if (Number.isInteger(sentenceId) && Number.isInteger(start) && Number.isInteger(end)) {
-    const exact = document.querySelector(
-      `[data-sentence-id="${sentenceId}"][data-start="${start}"][data-end="${end}"]`
-    );
-    if (exact) return exact;
+  const matchOcc = (el) => {
+    if (!occWant) return false;
+    const attr = el.getAttribute("data-occurrence");
+    if (!attr) return false;
+    const domNorm = parseOccurrenceKeyTuple(attr);
+    return domNorm === occWant || attr === occWant;
+  };
+
+  if (occWant) {
+    const byOcc = hits.filter(matchOcc);
+    if (byOcc.length === 1) return byOcc[0];
   }
 
-  let entityEl = document.querySelector(`[data-id="${id}"]`);
-  if (entityEl) return entityEl;
+  if (hits.length === 1) return hits[0];
+  if (hits.length > 1 && label) {
+    const filtered = hits.filter((el) => String(el.getAttribute("data-label") || "").trim() === label);
+    if (filtered.length === 1) return filtered[0];
+    if (occWant) {
+      const fo = filtered.filter(matchOcc);
+      if (fo.length === 1) return fo[0];
+    }
+  }
+  return null;
+}
+
+function parseOccurrenceKeyTuple(attr) {
+  const s = String(attr || "").trim();
+  const parts = s.split("|");
+  if (parts.length !== 3) return null;
+  const a = Number(parts[0]);
+  const b = Number(parts[1]);
+  const c = Number(parts[2]);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(c)) return null;
+  return `${Math.round(a)}|${Math.round(b)}|${Math.round(c)}`;
+}
+
+function findEntityElement(datum) {
+  const panel = document.getElementById("text-panel");
+  if (!panel) return null;
+
+  const entityText = datum?.entity || "";
+  const idStr = datum?.id !== undefined && datum?.id !== null ? String(datum.id) : "";
+  const occ = backendOccurrenceKey(datum);
+
+  if (idStr) {
+    const idHits = [...panel.querySelectorAll(".entity[data-id]")].filter(
+      (el) => el.getAttribute("data-id") === idStr,
+    );
+    if (idHits.length === 1) return idHits[0];
+    if (idHits.length > 1 && occ) {
+      for (const el of idHits) {
+        const attr = el.getAttribute("data-occurrence");
+        if (!attr) continue;
+        const domNorm = parseOccurrenceKeyTuple(attr);
+        if (domNorm === occ || attr === occ) return el;
+      }
+    }
+  }
+
+  if (occ) {
+    for (const el of panel.querySelectorAll(".entity[data-occurrence]")) {
+      const attr = el.getAttribute("data-occurrence");
+      if (!attr) continue;
+      if (attr === occ) return el;
+      const domNorm = parseOccurrenceKeyTuple(attr);
+      if (domNorm && domNorm === occ) return el;
+    }
+  }
+
+  const bySentence = findEntityElementBySentenceEntityKey(panel, datum);
+  if (bySentence) return bySentence;
+
+  // Solo si hay una sola marca con ese texto en todo el panel (evita varias "DNA" → la primera).
   const key = normalizeEntityKey(entityText);
   if (!key) return null;
-  return document.querySelector(`[data-entity-key="${key}"]`);
+  const keyHits = [...panel.querySelectorAll(".entity[data-entity-key]")].filter(
+    (el) => el.getAttribute("data-entity-key") === key,
+  );
+  if (keyHits.length === 1) return keyHits[0];
+  return null;
 }
 
 function normalizeEntityKey(value) {

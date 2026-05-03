@@ -1,5 +1,13 @@
+function apiRoot() {
+  if (typeof document === "undefined") return "/api";
+  const meta = document.querySelector('meta[name="scibert-api-root"]');
+  const raw = meta && typeof meta.content === "string" ? meta.content.trim() : "";
+  return raw.replace(/\/+$/, "") || "/api";
+}
+
 export async function listWorkspaces() {
-  const response = await fetch("/api/workspaces");
+  const root = apiRoot();
+  const response = await fetch(`${root}/workspaces`);
   if (!response.ok) {
     throw new Error("No se pudo cargar la lista de workspaces");
   }
@@ -7,7 +15,8 @@ export async function listWorkspaces() {
 }
 
 export async function getWorkspace(workspaceId) {
-  const response = await fetch(`/api/workspaces/${workspaceId}`);
+  const root = apiRoot();
+  const response = await fetch(`${root}/workspaces/${encodeURIComponent(workspaceId)}`);
   if (!response.ok) {
     throw new Error("No se pudo cargar el workspace");
   }
@@ -15,7 +24,8 @@ export async function getWorkspace(workspaceId) {
 }
 
 export async function createWorkspace(payload) {
-  const response = await fetch("/api/workspaces", {
+  const root = apiRoot();
+  const response = await fetch(`${root}/workspaces`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload || {}),
@@ -28,7 +38,8 @@ export async function createWorkspace(payload) {
 }
 
 export async function updateWorkspace(workspaceId, payload) {
-  const response = await fetch(`/api/workspaces/${workspaceId}`, {
+  const root = apiRoot();
+  const response = await fetch(`${root}/workspaces/${encodeURIComponent(workspaceId)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload || {}),
@@ -41,7 +52,8 @@ export async function updateWorkspace(workspaceId, payload) {
 }
 
 export async function deleteWorkspace(workspaceId) {
-  const response = await fetch(`/api/workspaces/${workspaceId}`, {
+  const root = apiRoot();
+  const response = await fetch(`${root}/workspaces/${encodeURIComponent(workspaceId)}`, {
     method: "DELETE",
   });
   const result = await response.json();
@@ -52,7 +64,8 @@ export async function deleteWorkspace(workspaceId) {
 }
 
 export async function updateWorkspaceArticles(workspaceId, articleIds, mode = "add") {
-  const response = await fetch(`/api/workspaces/${workspaceId}/articles`, {
+  const root = apiRoot();
+  const response = await fetch(`${root}/workspaces/${encodeURIComponent(workspaceId)}/articles`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -68,7 +81,8 @@ export async function updateWorkspaceArticles(workspaceId, articleIds, mode = "a
 }
 
 export async function processWorkspace(workspaceId, modelKey) {
-  const response = await fetch(`/api/workspaces/${workspaceId}/process`, {
+  const root = apiRoot();
+  const response = await fetch(`${root}/workspaces/${encodeURIComponent(workspaceId)}/process`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model: modelKey }),

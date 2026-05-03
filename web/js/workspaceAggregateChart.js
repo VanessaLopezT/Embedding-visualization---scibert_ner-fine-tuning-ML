@@ -1,11 +1,13 @@
 import { getColorForLabel, ambosOriginFillColor, ambosSeriesLegendFill } from "./categoryColors.js?v=20260501h";
 import {
+  ENTITY_POINT_LABEL_COLOR,
+  WORKSPACE_AXIS_TICK_COLOR,
   WORKSPACE_CATEGORY_LEGEND_LEFT,
   WORKSPACE_CATEGORY_LEGEND_WIDTH,
   workspaceAggregateSymbolSize,
   workspaceChartDataZoomInside,
   workspaceScatterAxesFromExtent,
-} from "./chartAxisUtils.js?v=20260603d";
+} from "./chartAxisUtils.js?v=20260502rel_axes_fix";
 
 let expandedEntityKey = null;
 
@@ -33,12 +35,18 @@ export function initWorkspaceAggregateChart(chart, payload = {}, options = {}) {
       if (!canExpand) {
         if (expandedEntityKey !== null) {
           expandedEntityKey = null;
+          try {
+            chart.dispatchAction({ type: "downplay", seriesIndex: "all" });
+          } catch (_) {}
           renderWorkspaceAggregate(chart, points, { combinedView });
           clearChartHoverState(chart);
         }
         return;
       }
 
+      try {
+        chart.dispatchAction({ type: "downplay", seriesIndex: "all" });
+      } catch (_) {}
       expandedEntityKey = expandedEntityKey === data.key ? null : data.key;
       renderWorkspaceAggregate(chart, points, { combinedView });
       clearChartHoverState(chart);
@@ -48,13 +56,12 @@ export function initWorkspaceAggregateChart(chart, payload = {}, options = {}) {
     if (data.isContribution) {
       expandedEntityKey = null;
 
-      // 🔥 fuerza repaint limpio
-      chart.dispatchAction({
-        type: 'downplay',
-        seriesIndex: 'all'
-      });
+      try {
+        chart.dispatchAction({ type: "downplay", seriesIndex: "all" });
+      } catch (_) {}
 
       renderWorkspaceAggregate(chart, points, { combinedView });
+      clearChartHoverState(chart);
     }
   });
 
@@ -133,17 +140,29 @@ function renderWorkspaceAggregate(chart, points, viewOpts = {}) {
   // Limpiar título previo cuando hay datos
   chart.setOption({ title: { show: false } }, false);
   
+  const collapsedSeries = buildSeries(points, null, { combinedView });
   const series = buildSeries(points, expandedEntityKey, { combinedView });
-  const axesModel = workspaceAggregateAxesFromSeries(series, combinedView);
+  const zoomState = readWorkspaceAggregateDataZoomState(chart);
+  // Misma idea que frecuencia por artículo: el marco de ejes no debe recalcularse
+  // con los puntos radiales del desglose; si no, el resto de agregados "saltan".
+  const axesModel = workspaceAggregateAxesFromSeries(collapsedSeries, combinedView);
   const fallbackAxis = (name, nameGap) => ({
     type: "value",
+    scale: true,
     name,
     nameLocation: "middle",
     nameGap,
+    nameTextStyle: {
+      color: ENTITY_POINT_LABEL_COLOR,
+      fontSize: 12,
+      fontWeight: 600,
+    },
     axisLabel: {
       formatter(value) {
         return Number(value || 0).toFixed(2);
       },
+      color: WORKSPACE_AXIS_TICK_COLOR,
+      fontSize: 11,
     },
     axisLine: { show: false },
     axisTick: { show: false },
@@ -155,8 +174,9 @@ function renderWorkspaceAggregate(chart, points, viewOpts = {}) {
   chart.setOption({
     animation: true,
     animationDuration: 350,
-    animationDurationUpdate: 350,
+    animationDurationUpdate: 0,
     animationEasing: "cubicOut",
+    animationEasingUpdate: "linear",
     tooltip: {
       show: true,
       formatter(params) {
@@ -210,7 +230,7 @@ function renderWorkspaceAggregate(chart, points, viewOpts = {}) {
       orient: "horizontal",
       textStyle: {
         fontSize: 12,
-        color: "#333",
+        color: ENTITY_POINT_LABEL_COLOR,
         fontWeight: 500,
       },
       backgroundColor: "rgba(255, 255, 255, 0.9)",
@@ -230,11 +250,46 @@ function renderWorkspaceAggregate(chart, points, viewOpts = {}) {
       containLabel: true,
     },
     backgroundColor: "#fafafa",
-    dataZoom: workspaceChartDataZoomInside(),
+    dataZoom: workspaceChartDataZoomInside().map((z) => {
+      const isX = Array.isArray(z?.xAxisIndex) && z.xAxisIndex.includes(0);
+      const isY = Array.isArray(z?.yAxisIndex) && z.yAxisIndex.includes(0);
+      if (isX) {
+        return { ...z, start: zoomState?.x?.start ?? z.start, end: zoomState?.x?.end ?? z.end };
+      }
+      if (isY) {
+        return { ...z, start: zoomState?.y?.start ?? z.start, end: zoomState?.y?.end ?? z.end };
+      }
+      return z;
+    }),
     xAxis: axesModel?.xAxis ?? fallbackAxis("Dimension 1", 30),
     yAxis: axesModel?.yAxis ?? fallbackAxis("Dimension 2", 40),
     series,
   }, true);
+  // Limpia estados de énfasis pegados tras re-render (evita nodos "invisibles"
+  // que reaparecen solo al pasar el mouse).
+  requestAnimationFrame(() => clearChartHoverState(chart));
+}
+
+function readWorkspaceAggregateDataZoomState(chart) {
+  if (!chart || typeof chart.getOption !== "function") return null;
+  try {
+    const opt = chart.getOption();
+    const dz = Array.isArray(opt?.dataZoom) ? opt.dataZoom : [];
+    const x = dz.find((z) => Array.isArray(z?.xAxisIndex) && z.xAxisIndex.includes(0));
+    const y = dz.find((z) => Array.isArray(z?.yAxisIndex) && z.yAxisIndex.includes(0));
+    return {
+      x: {
+        start: Number.isFinite(Number(x?.start)) ? Number(x.start) : 0,
+        end: Number.isFinite(Number(x?.end)) ? Number(x.end) : 100,
+      },
+      y: {
+        start: Number.isFinite(Number(y?.start)) ? Number(y.start) : 0,
+        end: Number.isFinite(Number(y?.end)) ? Number(y.end) : 100,
+      },
+    };
+  } catch (_) {
+    return null;
+  }
 }
 
 function buildSeries(points, expandedKey, opts = {}) {
@@ -272,6 +327,10 @@ function buildSeries(points, expandedKey, opts = {}) {
             borderColor: "#ffffff",
             borderWidth: 1,
           },
+          emphasis: {
+            focus: "series",
+            scale: true,
+          },
         });
       });
       return;
@@ -296,6 +355,10 @@ function buildSeries(points, expandedKey, opts = {}) {
         opacity: 0.95,
         borderColor: "#ffffff",
         borderWidth: 1,
+      },
+      emphasis: {
+        focus: "series",
+        scale: true,
       },
     });
   });
@@ -330,8 +393,9 @@ function buildSeries(points, expandedKey, opts = {}) {
       show: true,
       position: "top",
       distance: 6,
-      color: "#495057",
+      color: ENTITY_POINT_LABEL_COLOR,
       fontSize: 10,
+      fontWeight: 500,
       formatter(params) {
         const d = params?.data || {};
         if (d.isContribution) {

@@ -1,12 +1,14 @@
 import { getColorForLabel, ambosOriginFillColor, ambosSeriesLegendFill } from "./categoryColors.js?v=20260501h";
 import {
+  ENTITY_POINT_LABEL_COLOR,
   WORKSPACE_CATEGORY_LEGEND_LEFT,
   WORKSPACE_CATEGORY_LEGEND_WIDTH,
   extentFromScatterNodes,
+  normalizeEntityAggregateKey,
   workspaceAggregateSymbolSize,
   workspaceScatterAxesFromExtent,
   workspaceChartDataZoomInside,
-} from "./chartAxisUtils.js?v=20260603d";
+} from "./chartAxisUtils.js?v=20260607_article_xy_overlay";
 import { relationLineCurveness } from "./relationLineCurveness.js?v=20260601c";
 
 let activeWorkspaceRelationKey = null;
@@ -20,6 +22,58 @@ const EDGE_COLORS = {
 /** Igual que `workspaceAggregateChart.js` para misma altura útil del gráfico. */
 const WORKSPACE_LEGEND_TOP_PX = 4;
 const WORKSPACE_GRID_TOP_PX = 78;
+
+/** Alineado con `tsneChartRelations.js` / `tsneChart.js` (modo artículo individual). */
+const ARTICLE_REL_LEGEND_TOP_PX = 76;
+const ARTICLE_REL_GRID_TOP_PX = 154;
+const ARTICLE_LEGEND_WIDTH_TECH = "auto";
+const ARTICLE_LEGEND_WIDTH_CMT = "56%";
+const ARTICLE_LEGEND_WIDTH_WRAP = "52%";
+
+function buildArticleRelationsLegendConfig(labels = [], opts = {}) {
+  const combinedView = Boolean(opts.combinedView);
+  const uniqueLabels = Array.from(new Set(labels.map((label) => String(label || "").trim()).filter(Boolean)));
+  const usesCmtLabels = labels.some((label) => /\/| and |oncology|treatment/i.test(String(label || "")));
+  if (usesCmtLabels && !combinedView) {
+    return {
+      width: uniqueLabels.length >= 7 ? ARTICLE_LEGEND_WIDTH_CMT : ARTICLE_LEGEND_WIDTH_TECH,
+      backgroundColor: "rgba(255, 255, 255, 0.8)",
+      borderColor: "#e0e0e0",
+      borderWidth: 1,
+      borderRadius: 4,
+      padding: 7,
+    };
+  }
+  return {
+    width: uniqueLabels.length >= 7 ? ARTICLE_LEGEND_WIDTH_WRAP : ARTICLE_LEGEND_WIDTH_TECH,
+    backgroundColor: "rgba(255, 255, 255, 0.8)",
+    borderColor: "#e0e0e0",
+    borderWidth: 1,
+    borderRadius: 4,
+    padding: 7,
+  };
+}
+
+/** Igual que `tsneChartRelations.nodeSizeFromFrequency` (bolitas más pequeñas que workspace agregado). */
+function articleRelationSymbolSize(frequency, referenceMax) {
+  const freq = Number(frequency);
+  const refMax = Number(referenceMax);
+  if (!Number.isFinite(freq) || freq <= 1) return 16;
+  if (!Number.isFinite(refMax) || refMax <= 1) return 16;
+
+  const minRepeated = 2;
+  const minSize = 20;
+  const maxSize = 60;
+  const alpha = 0.65;
+
+  if (refMax <= minRepeated) return minSize;
+
+  const logMin = Math.log(minRepeated);
+  const logMax = Math.log(refMax);
+  const logF = Math.log(Math.max(freq, minRepeated));
+  const t = (logF - logMin) / Math.max(logMax - logMin, 1e-9);
+  return minSize + (maxSize - minSize) * Math.pow(Math.max(0, Math.min(1, t)), alpha);
+}
 
 function emptyWorkspaceRelationsOption(subtext) {
   return {
@@ -55,8 +109,50 @@ function notifyWorkspaceRelationsSummary(options, counts) {
   });
 }
 
+/**
+ * Artículo individual: el API usa proyección agregada distinta al JSON t-SNE del panel.
+ * Se sobrescribe x/y con el centroide por entidad sobre las mismas filas que Original/Frecuencia.
+ */
+function overlayArticleNodePositionsFromClientTsne(nodes, tsneRows) {
+  if (!Array.isArray(nodes) || !nodes.length || !Array.isArray(tsneRows) || !tsneRows.length) {
+    return nodes;
+  }
+  const buckets = new Map();
+  for (const p of tsneRows) {
+    const raw = String(p?.entity ?? "").trim();
+    if (!raw) continue;
+    const k = normalizeEntityAggregateKey(raw);
+    if (!buckets.has(k)) buckets.set(k, { sx: 0, sy: 0, n: 0 });
+    const b = buckets.get(k);
+    b.sx += Number(p?.x ?? 0);
+    b.sy += Number(p?.y ?? 0);
+    b.n += 1;
+  }
+  const centroidByKey = new Map();
+  for (const [k, b] of buckets) {
+    if (b.n > 0) centroidByKey.set(k, { x: b.sx / b.n, y: b.sy / b.n });
+  }
+  return nodes.map((node) => {
+    const sid = String(node?.key ?? "");
+    let pos = centroidByKey.get(sid);
+    if (!pos && node?.entity != null) {
+      pos = centroidByKey.get(normalizeEntityAggregateKey(String(node.entity)));
+    }
+    if (!pos) return { ...node };
+    return { ...node, x: pos.x, y: pos.y };
+  });
+}
+
 export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
-  const nodes = Array.isArray(payload?.nodes) ? payload.nodes : [];
+  const articleLayout = Boolean(options.articleLayout);
+  let nodes = Array.isArray(payload?.nodes) ? [...payload.nodes] : [];
+  if (
+    articleLayout &&
+    Array.isArray(options.clientTsnePoints) &&
+    options.clientTsnePoints.length
+  ) {
+    nodes = overlayArticleNodePositionsFromClientTsne(nodes, options.clientTsnePoints);
+  }
   const allEdges = Array.isArray(payload?.edges) ? payload.edges : [];
   const combinedView = Boolean(
     options.combinedView ?? (String(payload?.model || "").toLowerCase() === "ambos"),
@@ -127,19 +223,33 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
 
   const edgeSeriesData = buildEdgeSeriesData(filtered.edges, nodeMap);
   const hasRenderableRelations = filtered.edges.length > 0;
-  const axesModel = workspaceScatterAxesFromExtent(
-    extentFromScatterNodes(nodes),
-    0.07,
-    6,
-    combinedView ? "square" : false,
-  );
-  const scatterSeries = buildNodeSeries(filtered.nodes, { combinedView });
+  /** Misma caja que vista General/agregado: **todos** los nodos del payload, no solo los que pasan filtro. */
+  const extentNodes = extentFromScatterNodes(nodes);
+  let axesModel = null;
+  if (hasRenderableRelations && extentNodes) {
+    axesModel = workspaceScatterAxesFromExtent(
+      extentNodes,
+      0.07,
+      6,
+      combinedView ? "square" : false,
+    );
+  }
+
+  const articleLegendConfig = articleLayout
+    ? buildArticleRelationsLegendConfig(
+        filtered.nodes.map((n) => n.label || "UNKNOWN"),
+        { combinedView },
+      )
+    : null;
+
+  const scatterSeries = buildNodeSeries(filtered.nodes, { combinedView, articleLayout });
   const lineSeries = hasRenderableRelations
     ? [
         {
           id: "workspace-relations-edges",
           type: "lines",
           coordinateSystem: "cartesian2d",
+          clip: true,
           polyline: false,
           silent: false,
           z: 1,
@@ -199,8 +309,10 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
           `<b>${escapeHtml(node.entity || "")}</b>`,
           `Tipo: ${escapeHtml(node.entityType || "UNKNOWN")}`,
           `Frecuencia total: ${Number(node.frequency || 0)}`,
-          `Articulos del workspace: ${Number(node.articleCount || 0)}`,
         ];
+        if (!articleLayout) {
+          lines.push(`Articulos del workspace: ${Number(node.articleCount || 0)}`);
+        }
         const origin = node.dominantOrigin ?? node.dominant_origin;
         if (combinedView && origin) {
           const o = String(origin).toLowerCase();
@@ -221,31 +333,51 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
       right: 20,
       top: 20,
     },
-    legend: {
-      type: "plain",
-      top: WORKSPACE_LEGEND_TOP_PX,
-      left: WORKSPACE_CATEGORY_LEGEND_LEFT,
-      width: WORKSPACE_CATEGORY_LEGEND_WIDTH,
-      orient: "horizontal",
-      textStyle: {
-        fontSize: 12,
-        color: "#333",
-        fontWeight: 500,
-      },
-      backgroundColor: "rgba(255, 255, 255, 0.9)",
-      borderColor: "#e0e0e0",
-      borderWidth: 1,
-      borderRadius: 4,
-      padding: 8,
-      itemGap: 12,
-      itemWidth: 12,
-      itemHeight: 12,
-    },
+    legend: articleLayout && articleLegendConfig
+      ? {
+          top: ARTICLE_REL_LEGEND_TOP_PX,
+          left: "center",
+          width: articleLegendConfig.width,
+          orient: "horizontal",
+          textStyle: {
+            fontSize: 12,
+            color: ENTITY_POINT_LABEL_COLOR,
+            fontWeight: 500,
+          },
+          backgroundColor: articleLegendConfig.backgroundColor,
+          borderColor: articleLegendConfig.borderColor,
+          borderWidth: articleLegendConfig.borderWidth,
+          borderRadius: articleLegendConfig.borderRadius,
+          padding: articleLegendConfig.padding,
+          itemGap: 12,
+          itemWidth: 11,
+          itemHeight: 11,
+        }
+      : {
+          type: "plain",
+          top: WORKSPACE_LEGEND_TOP_PX,
+          left: WORKSPACE_CATEGORY_LEGEND_LEFT,
+          width: WORKSPACE_CATEGORY_LEGEND_WIDTH,
+          orient: "horizontal",
+          textStyle: {
+            fontSize: 12,
+            color: ENTITY_POINT_LABEL_COLOR,
+            fontWeight: 500,
+          },
+          backgroundColor: "rgba(255, 255, 255, 0.9)",
+          borderColor: "#e0e0e0",
+          borderWidth: 1,
+          borderRadius: 4,
+          padding: 8,
+          itemGap: 12,
+          itemWidth: 12,
+          itemHeight: 12,
+        },
     grid: {
       left: 60,
       right: 30,
       bottom: 40,
-      top: WORKSPACE_GRID_TOP_PX,
+      top: articleLayout ? ARTICLE_REL_GRID_TOP_PX : WORKSPACE_GRID_TOP_PX,
       containLabel: true,
     },
     backgroundColor: "#fafafa",
@@ -254,6 +386,7 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
       ? {
           ...(axesModel?.xAxis ?? {
             type: "value",
+            scale: true,
             name: "Dimension 1",
             nameLocation: "middle",
             nameGap: 30,
@@ -270,6 +403,7 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
       ? {
           ...(axesModel?.yAxis ?? {
             type: "value",
+            scale: true,
             name: "Dimension 2",
             nameLocation: "middle",
             nameGap: 40,
@@ -294,7 +428,18 @@ export function initWorkspaceRelationsChart(chart, payload = {}, options = {}) {
   // Tras aplicar opción completa (igual orden que tsneChartRelations: render antes, handlers después).
   chart.on("click", (params) => {
     const datum = params?.data;
-    if (!datum || !datum.isRelationNode) return;
+    if (!datum) return;
+    if (params?.seriesType === "lines") {
+      const nextKey = pickWorkspaceEdgeFocusKey(datum, activeWorkspaceRelationKey);
+      if (!nextKey) return;
+      activeWorkspaceRelationKey = nextKey;
+      initWorkspaceRelationsChart(chart, payload, {
+        ...options,
+        combinedView,
+      });
+      return;
+    }
+    if (!datum.isRelationNode) return;
     if (Number(datum.degree || 0) < 1) return;
     activeWorkspaceRelationKey = activeWorkspaceRelationKey === datum.key ? null : datum.key;
     initWorkspaceRelationsChart(chart, payload, {
@@ -346,6 +491,15 @@ function workspaceCrossCurvenessBoost(edge) {
   if (mix === "tech_cmt") return 1;
   if (mix === "joint_mix") return 0.55;
   return 0;
+}
+
+function pickWorkspaceEdgeFocusKey(edge, currentSelectedKey) {
+  const source = String(edge?.source || "").trim();
+  const target = String(edge?.target || "").trim();
+  if (!source || !target) return "";
+  if (currentSelectedKey === source) return target;
+  if (currentSelectedKey === target) return source;
+  return source;
 }
 
 function buildEdgeSeriesData(edges, nodeMap, visibleNodeKeys = null) {
@@ -481,12 +635,17 @@ function applySelection(model, selectedKey) {
 
 function buildNodeSeries(nodes, opts = {}) {
   const combinedView = Boolean(opts.combinedView);
+  const articleLayout = Boolean(opts.articleLayout);
+  const referenceMax = articleLayout
+    ? Math.max(2, ...nodes.map((node) => Number(node.frequency || 1)))
+    : 1;
   const groups = {};
 
   nodes.forEach((node) => {
     const label = node.label || "UNKNOWN";
     if (!groups[label]) groups[label] = [];
     const origin = String(node.dominant_origin || node.dominantOrigin || "joint").toLowerCase();
+    const frequency = Number(node.frequency || 1);
     groups[label].push({
       value: [Number(node.x || 0), Number(node.y || 0)],
       key: node.key,
@@ -494,10 +653,12 @@ function buildNodeSeries(nodes, opts = {}) {
       entityType: label,
       dominantOrigin: origin,
       dominant_origin: origin,
-      frequency: Number(node.frequency || 1),
+      frequency,
       articleCount: Number(node.article_count ?? node.articleCount ?? 1),
       degree: Number(node.degree || 0),
-      symbolSize: workspaceAggregateSymbolSize(node),
+      symbolSize: articleLayout
+        ? articleRelationSymbolSize(frequency, referenceMax)
+        : workspaceAggregateSymbolSize(node),
       isRelationNode: true,
       selected: Boolean(node.selected),
     });
@@ -525,8 +686,8 @@ function buildNodeSeries(nodes, opts = {}) {
       position: "top",
       distance: 6,
       fontSize: 10,
-      color: "#333",
-      fontWeight: "normal",
+      color: ENTITY_POINT_LABEL_COLOR,
+      fontWeight: 500,
     },
     emphasis: {
       focus: "none",
@@ -548,8 +709,8 @@ function buildNodeSeries(nodes, opts = {}) {
           borderWidth: node.selected ? 2.4 : 1.2,
         },
         label: {
-          color: "#333",
-          fontWeight: node.selected ? 600 : 400,
+          color: ENTITY_POINT_LABEL_COLOR,
+          fontWeight: node.selected ? 600 : 500,
         },
       };
     }),
@@ -576,7 +737,7 @@ function buildRelationLegend() {
           x: 0,
           y: 1,
           text: "Relación:",
-          fill: "#6b7280",
+          fill: "#374151",
           font: "11px sans-serif",
         },
       },
@@ -594,7 +755,7 @@ function buildRelationLegend() {
               x: x + 20,
               y: 1,
               text: item.text,
-              fill: "#4b5563",
+              fill: ENTITY_POINT_LABEL_COLOR,
               font: "11px sans-serif",
             },
           },
@@ -627,7 +788,7 @@ function buildNoRelationsGraphic(filterMode) {
           x: -150,
           y: 16,
           text: message,
-          fill: "#6b7280",
+          fill: "#374151",
           font: "12px sans-serif",
         },
       },

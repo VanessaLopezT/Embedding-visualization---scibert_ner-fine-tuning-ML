@@ -4,6 +4,8 @@
  */
 
 import { getColorForLabel, ambosOriginFillColor, ambosSeriesLegendFill } from "./categoryColors.js?v=20260501h";
+import { ENTITY_POINT_LABEL_COLOR, WORKSPACE_AXIS_TICK_COLOR } from "./chartAxisUtils.js?v=20260606_axis_auto";
+import { scrollPanelElementIntoView } from "./textPanel.js?v=20260603t";
 
 let globalChart = null;
 const ARTICLE_LEGEND_WIDTH_TECH = "auto";
@@ -16,7 +18,7 @@ const ARTICLE_GRID_TOP_PX = 154;
 export function initTSNEChart(chart, data, axisRange = null, options = {}) {
   const combinedView = Boolean(options.combinedView);
   globalChart = chart;
-  
+
   // Validar si no hay datos de entidades
   if (!Array.isArray(data) || data.length === 0) {
     chart.setOption({
@@ -98,8 +100,8 @@ export function initTSNEChart(chart, data, axisRange = null, options = {}) {
       position: "top",
       distance: 6,
       fontSize: 10,
-      color: "#333",
-      fontWeight: "normal"
+      color: ENTITY_POINT_LABEL_COLOR,
+      fontWeight: 500,
     },
 
     emphasis: {
@@ -142,7 +144,7 @@ export function initTSNEChart(chart, data, axisRange = null, options = {}) {
       orient: "horizontal",
       textStyle: {
         fontSize: 12,
-        color: "#333",
+        color: ENTITY_POINT_LABEL_COLOR,
         fontWeight: 500
       },
       backgroundColor: legendConfig.backgroundColor,
@@ -192,10 +194,17 @@ export function initTSNEChart(chart, data, axisRange = null, options = {}) {
 
     xAxis: {
       type: "value",
+      scale: true,
       ...(axisRange ? { min: axisRange.xMin, max: axisRange.xMax } : {}),
       name: "Dimensi\u00F3n 1",
       nameLocation: "middle",
       nameGap: 30,
+      nameTextStyle: {
+        color: ENTITY_POINT_LABEL_COLOR,
+        fontSize: 12,
+        fontWeight: 600,
+      },
+      axisLabel: { color: WORKSPACE_AXIS_TICK_COLOR, fontSize: 11 },
       axisLine: { show: false, lineStyle: { color: "#000000" } },
       axisTick: { show: false },
       splitLine: {
@@ -206,10 +215,17 @@ export function initTSNEChart(chart, data, axisRange = null, options = {}) {
     
     yAxis: {
       type: "value",
+      scale: true,
       ...(axisRange ? { min: axisRange.yMin, max: axisRange.yMax } : {}),
       name: "Dimensi\u00F3n 2",
       nameLocation: "middle",
       nameGap: 40,
+      nameTextStyle: {
+        color: ENTITY_POINT_LABEL_COLOR,
+        fontSize: 12,
+        fontWeight: 600,
+      },
+      axisLabel: { color: WORKSPACE_AXIS_TICK_COLOR, fontSize: 11 },
       axisLine: { show: false, lineStyle: { color: "#000000" } },
       axisTick: { show: false },
       splitLine: {
@@ -243,10 +259,7 @@ function highlightEntityInPanel(id, entityText = "") {
   if (entityEl) {
     entityEl.classList.add("highlighted");
     const panel = document.getElementById("text-panel");
-    if (panel) {
-      const targetTop = entityEl.offsetTop - (panel.clientHeight / 2) + (entityEl.offsetHeight / 2);
-      panel.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
-    }
+    if (panel) scrollPanelElementIntoView(panel, entityEl);
   }
 }
 
