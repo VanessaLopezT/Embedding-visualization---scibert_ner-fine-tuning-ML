@@ -11,6 +11,8 @@ Aplicación web full-stack para **Named Entity Recognition (NER)** sobre literat
 | **Despliegue** | Docker Compose, puerto **9000** |
 | **Python** | **3.11** (local y contenedor) |
 
+> **Los modelos NLP no están en git.** Los checkpoints `TechBERT/` y `PatVetBERT/` debes obtenerlos y colocarlos manualmente en la raíz del proyecto. Están en `.gitignore` y `.dockerignore`; Docker los monta como volúmenes. Sin ellos la app arranca, pero no puede ejecutar NER.
+
 ---
 
 ## Tabla de contenidos
@@ -26,8 +28,7 @@ Aplicación web full-stack para **Named Entity Recognition (NER)** sobre literat
 9. [Verificaciones importantes](#9-verificaciones-importantes)
 10. [Troubleshooting](#10-troubleshooting)
 11. [Consideraciones de despliegue](#11-consideraciones-de-despliegue)
-12. [Conclusión técnica](#12-conclusión-técnica)
-13. [License / Licencia](#13-license--licencia)
+12. [License / Licencia](#12-license--licencia)
 
 ---
 
@@ -109,6 +110,8 @@ Definidos en `articles/model_registry.py`:
 | `tech` | **TechBERT** | `TechBERT/best_model` | SciBERT fine-tuned — literatura ML/NLP |
 | `cmt` | **PatVetBERT** | `PatVetBERT/best_model` | BioBERT/biomedical NER — oncología veterinaria (CMT) |
 
+> **Importante:** estas carpetas de checkpoint **no se incluyen en el repositorio**. Debes disponer de los pesos fine-tuned por tu cuenta (transferencia local, almacenamiento institucional, etc.) antes de procesar artículos.
+
 También existe soporte para modelo **combinado** (`combined_results.py`) que fusiona resultados de ambos checkpoints cuando el usuario selecciona ambos modelos en la UI.
 
 ---
@@ -142,7 +145,7 @@ También existe soporte para modelo **combinado** (`combined_results.py`) que fu
                 │ bind mount :ro
 ┌───────────────────────────┐
 │  TechBERT/best_model/     │
-│  PatVetBERT/best_model/   │  ← NO van en la imagen Docker
+│  PatVetBERT/best_model/   │  ← NO en git ni en la imagen Docker
 └───────────────────────────┘
 ```
 
@@ -209,17 +212,12 @@ scibert_ner/
 ├── docker-compose.yml
 ├── .env.example                 # Plantilla de variables
 ├── .dockerignore
-├── .gitattributes               # UTF-8 requirements, LF en *.sh
+├── .gitattributes               # LF en scripts y requirements
 │
 ├── docker/
 │   └── entrypoint.sh            # Init: migrate + gunicorn
 │
-├── scripts/
-│   ├── write_requirements_utf8.py   # Regenera requirements en UTF-8
-│   ├── normalize_shell_scripts.py   # Convierte *.sh a LF
-│   ├── extract_web_assets.py        # Auxiliar refactor (excluido de imagen)
-│   ├── patch_index_template.py
-│   └── reorganize_web_js.py
+├── scripts/                     # Utilidades de mantenimiento (ver README)
 │
 ├── server/                      # Proyecto Django
 │   ├── settings/
@@ -291,9 +289,20 @@ scibert_ner/
 | `web/` | Assets estáticos; en prod se copian a `staticfiles/` vía `collectstatic` |
 | `templates/` | Plantillas Django (solo `index.html` en producción) |
 | `data/` | **No versionar** artículos procesados; montar como volumen |
-| `TechBERT/`, `PatVetBERT/` | Checkpoints Hugging Face (`config.json`, `pytorch_model.bin` o `.safetensors`, tokenizer) |
+| `TechBERT/`, `PatVetBERT/` | **No están en git.** Checkpoints Hugging Face que debes añadir localmente (`config.json`, tokenizer, `.safetensors` / `.bin`) |
 
-> **No existe carpeta `media/`**: los uploads se guardan directamente en `data/articles/`.
+> **No existe carpeta `media/`**: los uploads se guardan en `data/articles/`.
+
+### Qué no incluye el repositorio
+
+| Elemento | Motivo |
+|----------|--------|
+| `TechBERT/`, `PatVetBERT/` | Checkpoints de cientos de MB–GB; excluidos por `.gitignore` |
+| `data/articles/` | Artefactos generados al subir PDFs |
+| `.env` | Secretos y configuración local |
+| `venv/`, `staticfiles/` | Entorno y build |
+
+Tras clonar, **debes** crear o copiar `TechBERT/best_model/` y `PatVetBERT/best_model/` en el host antes de usar NER.
 
 ---
 
@@ -377,30 +386,7 @@ Logs de Gunicorn van a **stdout/stderr** (`--access-logfile - --error-logfile -`
 
 ### `.dockerignore`
 
-Excluye de la imagen: `venv/`, `.env`, `data/`, checkpoints, `*.safetensors`, `staticfiles/`, scripts auxiliares de refactor, documentación excepto README.
-
-### Problema CRLF/LF en `entrypoint.sh` (Windows → Linux)
-
-**Síntoma:** `exec /app/docker/entrypoint.sh: no such file or directory` aunque el archivo existe y tiene `chmod +x`.
-
-**Causa:** Git/Windows guardó el shebang como `#!/bin/sh\r\n`. Linux busca el intérprete `/bin/sh\r`, que no existe.
-
-**Solución implementada (defensa en profundidad):**
-
-| Capa | Mecanismo |
-|------|-----------|
-| Repositorio | `.gitattributes`: `*.sh text eol=lf` |
-| Host Windows | `python scripts/normalize_shell_scripts.py` |
-| Build Docker | `sed -i 's/\r$//'` + `chmod +x` |
-| Compose | `entrypoint: ["/app/docker/entrypoint.sh"]` explícito |
-
-**Verificación LF dentro del contenedor:**
-
-```bash
-docker compose run --rm --entrypoint "/bin/sh" web -c \
-  "head -1 /app/docker/entrypoint.sh | od -An -tx1"
-# Esperado: 23 21 2f 62 69 6e 2f 73 68 0a  (#!/bin/sh + LF)
-```
+Excluye de la imagen: `venv/`, `.env`, `data/`, checkpoints (`TechBERT/`, `PatVetBERT/`, `*.safetensors`), `staticfiles/`.
 
 ### Compatibilidad Windows / Linux
 
@@ -408,32 +394,38 @@ docker compose run --rm --entrypoint "/bin/sh" web -c \
 |------|---------|-------|
 | Docker | Docker Desktop + WSL2 recomendado | Docker Engine nativo |
 | `db.sqlite3` | `type nul > db.sqlite3` antes del primer `up` | `touch db.sqlite3` |
-| Rutas modelos en `.env` | `TechBERT/best_model` (forward slash OK en contenedor) | Igual |
-| Line endings | Ejecutar scripts de normalización tras editar `.sh` / `requirements.txt` | Generalmente sin problemas |
+| Modelos NLP | Colocar `TechBERT/` y `PatVetBERT/` manualmente (no vienen con `git clone`) | Igual |
 
 ---
 
 ## 5. Modelos NLP
 
-### Ubicación de checkpoints
+### No incluidos en git
 
-Los modelos **no están en el repositorio git**. Deben existir en el host:
+Los checkpoints **TechBERT** y **PatVetBERT** son artefactos externos al repositorio:
+
+- Listados en `.gitignore` (no se suben a GitHub).
+- Excluidos de la imagen Docker (`.dockerignore`).
+- Montados en runtime desde el host vía `docker-compose.yml`.
 
 ```
 scibert_ner/
-├── TechBERT/
-│   └── best_model/
-│       ├── config.json
-│       ├── tokenizer.json / vocab.txt
-│       └── model.safetensors (o pytorch_model.bin)
-└── PatVetBERT/
-    └── best_model/
-        └── (misma estructura Hugging Face)
+├── TechBERT/best_model/      ← obtener y colocar manualmente
+└── PatVetBERT/best_model/    ← obtener y colocar manualmente
 ```
 
-Rutas configurables vía `MODEL_TECH_CHECKPOINT` y `MODEL_CMT_CHECKPOINT` (relativas a `/app` en Docker).
+Estructura esperada (formato Hugging Face):
 
-### Cómo accede el contenedor
+```
+best_model/
+├── config.json
+├── tokenizer.json  (o vocab.txt)
+└── model.safetensors  (o pytorch_model.bin)
+```
+
+Rutas configurables con `MODEL_TECH_CHECKPOINT` y `MODEL_CMT_CHECKPOINT` en `.env`.
+
+### Ubicación y acceso
 
 Docker Compose monta `./TechBERT` y `./PatVetBERT` como volúmenes **read-only** en `/app/TechBERT` y `/app/PatVetBERT`. El entrypoint emite **AVISO** si no encuentra las rutas, pero no aborta (permite arrancar para diagnóstico).
 
@@ -459,18 +451,12 @@ Docker Compose monta `./TechBERT` y `./PatVetBERT` como volúmenes **read-only**
 
 | Aspecto | Detalle |
 |---------|---------|
-| Wheel | `torch==2.5.1` desde `https://download.pytorch.org/whl/cpu` |
-| Verificación build | `assert not torch.cuda.is_available()` |
-| Verificación pip | Falla build si aparece paquete `nvidia-*` |
-| Runtime | `SciBERTNERProcessor` usa `device="cpu"` cuando CUDA no está disponible |
-| Pipeline HF | `device=-1` en CPU |
-
-**Comprobar torch CPU en contenedor:**
+| Wheel | `torch==2.5.1` desde índice CPU de PyTorch |
+| Runtime | Inferencia en CPU (`device="cpu"`) |
 
 ```bash
 docker compose exec web python -c \
   "import torch; print(torch.__version__); print('CUDA:', torch.cuda.is_available())"
-# Esperado: 2.5.1+cpu  /  CUDA: False
 ```
 
 ### Stack Hugging Face
@@ -482,10 +468,6 @@ docker compose exec web python -c \
 | `huggingface-hub` | 0.27.1 | Descarga/config local de checkpoints |
 | `safetensors` | 0.5.2 | Carga pesos `.safetensors` |
 | `torch` | 2.5.1+cpu | Backend tensor CPU |
-
-### Por qué NO paquetes NVIDIA
-
-El proyecto está diseñado para servidores **sin GPU** y laptops de desarrollo. Instalar wheels CUDA arrastraría ~2 GB de librerías `nvidia-*` innecesarias y rompería despliegues CPU. El índice PyTorch CPU y las verificaciones en Dockerfile lo impiden.
 
 ---
 
@@ -515,32 +497,9 @@ pip install -r requirements-prod.txt
 | numpy | 2.1.3 | ✅ |
 | scipy | 1.14.1 | ✅ |
 | scikit-learn | 1.5.2 | ✅ |
-| pdfplumber | 0.11.9 | ✅ (fija pdfminer.six compatible) |
+| pdfplumber | 0.11.9 | ✅ |
 
-### Conflictos corregidos (historial real)
-
-| Problema | Síntoma | Solución aplicada |
-|----------|---------|-------------------|
-| **UTF-16 en requirements.txt** | `UnicodeDecodeError`, `\x00` en pip | Reescritura UTF-8; `write_requirements_utf8.py`; `.gitattributes` |
-| **Django 6 + Python 3.11** | Incompatibilidad de soporte | Bajado a **Django 5.2.11 LTS** |
-| **sympy 1.14 vs torch 2.5.1** | `ResolutionImpossible` pip | Fijado **sympy==1.13.1** |
-| **torch CUDA accidental** | GB de `nvidia-*`, builds lentos | Índice `whl/cpu` + verificación en Dockerfile |
-| **pdfminer vs pdfplumber** | Conflicto `20240706` vs `20231228` | Solo **pdfplumber==0.11.9** (arrastra pdfminer.six) |
-| **transformers 5.x inestable** | Pins agresivos, API cambiante | **transformers 4.48.3** estable |
-| **torchaudio/torchvision** | Wheels inexistentes `+cpu` | Eliminados (no usados en código) |
-| **pandas/matplotlib/seaborn** | Peso innecesario | Eliminados (no importados) |
-| **CRLF entrypoint.sh** | `exec: no such file or directory` | LF + sed + `.gitattributes` |
-
-### Paquetes eliminados deliberadamente
-
-`torchaudio`, `torchvision`, `pandas`, `matplotlib`, `seaborn`, `simpy`, stacks CUDA/NVIDIA, `Flask` (solo en `app.py` legacy).
-
-### Regenerar requirements (Windows)
-
-```bash
-python scripts/write_requirements_utf8.py
-python -c "assert b'\\x00' not in open('requirements.txt','rb').read()"
-```
+Instalar siempre con `pip install -r requirements-prod.txt` (incluye PyTorch CPU).
 
 ---
 
@@ -586,7 +545,7 @@ Copiar plantilla: `cp .env.example .env`
 
 - **Docker:** Docker Desktop (Windows/macOS) o Docker Engine 24+ (Linux)
 - **Git**
-- Checkpoints en `TechBERT/best_model/` y `PatVetBERT/best_model/`
+- **Checkpoints NLP** (obligatorio): carpetas `TechBERT/best_model/` y `PatVetBERT/best_model/` en la raíz del proyecto — **no vienen con el clone**
 - (Opcional) Datos de ejemplo: `data/example/tsne_tech.json`, `tsne_cmt.json`
 
 ### 8.2 Clonar e inicializar
@@ -595,15 +554,16 @@ Copiar plantilla: `cp .env.example .env`
 git clone <url-repositorio> scibert_ner
 cd scibert_ner
 
+# Colocar los modelos fine-tuned (no están en el repo)
+# TechBERT/best_model/
+# PatVetBERT/best_model/
+
 cp .env.example .env
 # Editar .env: DJANGO_SECRET_KEY, DJANGO_ALLOWED_HOSTS
 
 # Crear SQLite vacío (IMPORTANTE en Windows)
 type nul > db.sqlite3        # Windows CMD
 # touch db.sqlite3           # Linux/macOS
-
-# Normalizar scripts si se clonó en Windows
-python scripts/normalize_shell_scripts.py
 ```
 
 ### 8.3 Docker — build y arranque
@@ -705,98 +665,20 @@ docker compose exec web pip list | grep -i nvidia
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}" http://localhost:9000/
-# Esperado: 200
-
 curl -s http://localhost:9000/api/models | python -m json.tool
-# Debe listar tech y cmt
 ```
-
-### Checklist UI
-
-Ver `web/VERIFICATION_CHECKLIST.md` para regresión visual ECharts (vistas t-SNE, relaciones, workspaces, responsive).
 
 ---
 
 ## 10. Troubleshooting
 
-### `exec /app/docker/entrypoint.sh: no such file or directory`
-
-| | |
-|---|---|
-| **Síntoma** | Contenedor reinicia; error exec en logs |
-| **Causa** | CRLF en shebang (`#!/bin/sh\r`) |
-| **Solución** | `python scripts/normalize_shell_scripts.py` → `docker compose build --no-cache` |
-
-### `Invalid requirement: '\x00#...'` (pip build)
-
-| | |
-|---|---|
-| **Síntoma** | Falla `pip install` en Docker build |
-| **Causa** | `requirements.txt` guardado en **UTF-16** (Windows) |
-| **Solución** | `python scripts/write_requirements_utf8.py` → rebuild |
-
-### `ResolutionImpossible` (pip)
-
-| | |
-|---|---|
-| **Síntoma** | Conflicto entre paquetes pinneados |
-| **Causas comunes** | sympy ≠ 1.13.1; pdfminer pin manual vs pdfplumber; Django 6 |
-| **Solución** | Usar pins de `requirements.txt` actuales; no añadir pins manuales de pdfminer |
-
-### Build descarga CUDA / paquetes `nvidia-*`
-
-| | |
-|---|---|
-| **Síntoma** | GB extra, `torch-2.x+cu121` |
-| **Causa** | Instalar `requirements.txt` sin `requirements-prod.txt` o sin índice CPU |
-| **Solución** | Siempre `pip install -r requirements-prod.txt` |
-
-### Docker crea `db.sqlite3/` como carpeta
-
-| | |
-|---|---|
-| **Síntoma** | Error SQLite al migrar |
-| **Causa** | Bind mount a archivo inexistente en Windows |
-| **Solución** | `type nul > db.sqlite3` **antes** de `docker compose up` |
-
-### Modelos no cargan / AVISO en entrypoint
-
-| | |
-|---|---|
-| **Síntoma** | `[entrypoint] AVISO: MODEL_* no encontrado` |
-| **Causa** | Carpetas `TechBERT/` o `PatVetBERT/` ausentes en host |
-| **Solución** | Colocar checkpoints y verificar rutas en `.env` |
-
-### OOM / contenedor mata el proceso
-
-| | |
-|---|---|
-| **Síntoma** | Exit 137, worker killed |
-| **Causa** | RAM insuficiente con 2 modelos + paper largo |
-| **Solución** | Subir límite en `docker-compose.yml`; mantener `GUNICORN_WORKERS=1`; usar `DJANGO_SKIP_MODEL_PRELOAD=1` solo en build/tests (no en prod si se quiere precarga) |
-
-### Caché Docker obsoleta
-
-| | |
-|---|---|
-| **Síntoma** | Cambios en requirements/entrypoint no se reflejan |
-| **Solución** | `docker compose build --no-cache` |
-
-### Permisos Linux en volúmenes
-
-| | |
-|---|---|
-| **Síntoma** | Permission denied escribiendo en `data/` |
-| **Causa** | UID contenedor (root) vs permisos host |
-| **Solución** | `chmod -R u+rwX data/` o ajustar ownership del directorio |
-
-### Upload falla / pipeline vacío
-
-| | |
-|---|---|
-| **Síntoma** | `ner_*.json` vacío, logs `[pipeline] Error` |
-| **Causa** | PDF escaneado, extracción vacía, checkpoint corrupto |
-| **Solución** | Revisar logs worker; probar TXT; verificar `config.json` del checkpoint |
+| Problema | Causa probable | Qué hacer |
+|----------|----------------|-----------|
+| `[entrypoint] AVISO: MODEL_* no encontrado` | Faltan `TechBERT/` o `PatVetBERT/` en el host | Copiar checkpoints; verificar rutas en `.env` |
+| Error SQLite al migrar | `db.sqlite3` no existe (Docker crea carpeta en Windows) | `type nul > db.sqlite3` antes de `docker compose up` |
+| Contenedor sale con OOM (137) | RAM insuficiente con 2 modelos cargados | Subir límite en `docker-compose.yml`; `GUNICORN_WORKERS=1` |
+| `ner_*.json` vacío | PDF ilegible o checkpoint incompleto | Revisar logs; probar TXT; verificar `config.json` del modelo |
+| Cambios no se reflejan tras editar deps | Caché Docker | `docker compose build --no-cache` |
 
 ---
 
@@ -837,37 +719,7 @@ Ver `web/VERIFICATION_CHECKLIST.md` para regresión visual ECharts (vistas t-SNE
 ### Escalabilidad
 
 - Arquitectura actual: **un proceso Gunicorn, un worker**, colas in-process.
-- Escalar horizontalmente requeriría: workers separados por modelo, cola externa (Redis/RQ), almacenamiento compartido (NFS/S3), y **no** precargar ambos modelos en cada réplica.
-- Para alto throughput, considerar servicio NER desacoplado (FastAPI + GPU) y Django solo como orquestador.
-
-### Imágenes reproducibles
-
-- Pins exactos en `requirements.txt`.
-- `--no-cache-dir` en pip (Dockerfile).
-- Verificaciones post-install (torch CPU, no nvidia).
-- `.gitattributes` para encoding y line endings.
-- Scripts de normalización documentados.
-
----
-
-## 12. Conclusión técnica
-
-El sistema SciBERT NER queda **dockerizado de forma reproducible** sobre **Python 3.11**, con stack ML **CPU-only** verificado en build y runtime. Los checkpoints permanecen **fuera de la imagen**, montados como volúmenes, lo que mantiene builds rápidos y permite intercambiar modelos sin rebuild.
-
-La revisión de dependencias eliminó conflictos reales (UTF-16, Django 6, sympy/torch, pdfplumber/pdfminer, wheels CUDA) y fijó versiones compatibles para producción académica y operativa.
-
-La compatibilidad **Windows/Linux** se aborda en tres frentes: `.gitattributes`, scripts de normalización (`write_requirements_utf8.py`, `normalize_shell_scripts.py`) y defensas en Dockerfile (`sed` anti-`\r`).
-
-**Estado final:**
-
-| Criterio | Estado |
-|----------|--------|
-| `docker compose build --no-cache` | ✅ |
-| `docker compose up -d` + Gunicorn | ✅ |
-| Precarga modelos tech + cmt | ✅ |
-| torch 2.5.1+cpu, sin nvidia | ✅ |
-| API + UI ECharts | ✅ |
-| Documentación despliegue | ✅ (este README) |
+- Escalar horizontalmente requeriría cola externa, almacenamiento compartido y evitar duplicar modelos en RAM por réplica.
 
 ---
 
@@ -892,7 +744,7 @@ La compatibilidad **Windows/Linux** se aborda en tres frentes: `.gitattributes`,
 
 ---
 
-## 13. License / Licencia
+## 12. License / Licencia
 
 This project was developed as an undergraduate thesis and applied research project at **Universidad de los Llanos** by:
 
