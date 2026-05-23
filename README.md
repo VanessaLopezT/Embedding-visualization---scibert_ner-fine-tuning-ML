@@ -39,14 +39,17 @@ scibert_ner_project/
 ├── web/                            # Estáticos (CSS + JS)
 │   ├── css/
 │   │   ├── style.css
-│   │   └── textPanel.css
-│   └── js/
-│       ├── categoryColors.js
-│       ├── dataLoader.js
-│       ├── interactions.js
-│       ├── textPanel.js
-│       ├── tsneChart.js
-│       └── tsneChartFrequency.js
+│   │   ├── textPanel.css
+│   │   ├── app.css
+│   │   └── responsive.css
+│   ├── js/
+│   │   ├── app.js                  # Orquestación (entrypoint)
+│   │   ├── api/
+│   │   ├── charts/
+│   │   ├── ui/
+│   │   └── utils/
+│   └── legacy/
+│       └── index_text_view.html    # Prototipo Flask (legacy)
 │
 └── data/
     ├── example/
