@@ -1,4 +1,9 @@
-# SciBERT NER - Python 3.11, CPU (Django + NER + PDF).
+"""Write requirements*.txt as UTF-8 (avoid UTF-16 from editors on Windows)."""
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+REQ = """# SciBERT NER - Python 3.11, CPU (Django + NER + PDF).
 # Install in Docker: pip install -r requirements-prod.txt
 
 # --- Web (Django 5.2 LTS; Python 3.10-3.13) ---
@@ -45,3 +50,27 @@ pdfplumber==0.11.9
 pypdf==5.1.0
 PyPDF2==3.0.1
 pillow==11.0.0
+"""
+
+PROD = """# Production Docker: PyTorch CPU wheels + application deps.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+torch==2.5.1
+
+-r requirements.txt
+"""
+
+
+def main() -> None:
+    (ROOT / "requirements.txt").write_bytes(REQ.encode("utf-8"))
+    (ROOT / "requirements-prod.txt").write_bytes(PROD.encode("utf-8"))
+    for name in ("requirements.txt", "requirements-prod.txt"):
+        raw = (ROOT / name).read_bytes()
+        raw.decode("utf-8")
+        if b"\x00" in raw:
+            raise SystemExit(f"{name}: UTF-16 detected")
+        print(f"Wrote {name} ({len(raw)} bytes, UTF-8)")
+
+
+if __name__ == "__main__":
+    main()

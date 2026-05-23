@@ -20,6 +20,12 @@ class ArticlesConfig(AppConfig):
 
 
 def _should_preload_models() -> bool:
+    if os.environ.get("DJANGO_SKIP_MODEL_PRELOAD", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        return False
     run_main = os.environ.get("RUN_MAIN")
     if settings.DEBUG:
         return run_main == "true"

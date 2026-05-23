@@ -1,6 +1,16 @@
 ﻿# Entorno virtual
 venv/
 .env/
+.env
+
+
+.env.*
+.DS_Store
+.idea/
+.vscode/
+
+# collectstatic (producción)
+staticfiles/
 
 # Checkpoints y modelos
 checkpoint-*/
@@ -55,7 +65,6 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.pyc
-migrations/
 
 # ══════════════════════════════════════════════════════
 # ARCHIVOS TEMPORALES DE PROCESAMIENTO

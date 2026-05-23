@@ -1,0 +1,26 @@
+services:
+  web:
+    build: .
+    container_name: scibert_ner_web
+    entrypoint: ["/app/docker/entrypoint.sh"]
+    ports:
+      - "${APP_PORT:-9000}:9000"
+    env_file:
+      - .env
+    environment:
+      DJANGO_SETTINGS_MODULE: server.settings.production
+      APP_PORT: "9000"
+    volumes:
+      # Datos persistentes (artículos, workspaces, ejemplo)
+      - ./data:/app/data
+      # Checkpoints fuera de la imagen (solo lectura)
+      - ./TechBERT:/app/TechBERT:ro
+      - ./PatVetBERT:/app/PatVetBERT:ro
+      # SQLite persistente
+      - ./db.sqlite3:/app/db.sqlite3
+    restart: unless-stopped
+    # NER/torch: un worker; ajuste memoria según host
+    deploy:
+      resources:
+        limits:
+          memory: 8G

@@ -27,4 +27,5 @@ urlpatterns = [
     path("api/example/tsne", views.get_example_tsne, name="get_example_tsne"),
 ]
 
-urlpatterns += static(settings.STATIC_URL, document_root=str(settings.BASE_DIR / "web"))
+if settings.DEBUG:
+    urlpatterns += static(settings.STATIC_URL, document_root=str(settings.BASE_DIR / "web"))

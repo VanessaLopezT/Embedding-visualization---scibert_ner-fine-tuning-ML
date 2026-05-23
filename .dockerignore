@@ -1,0 +1,44 @@
+# Entorno y caché local
+venv/
+.env/
+.env
+__pycache__/
+*.py[cod]
+*.pyc
+.pytest_cache/
+.mypy_cache/
+
+# Git y editor
+.git/
+.gitignore
+.cursor/
+*.md
+!README.md
+
+# Datos y modelos (montados por volúmenes, no en la imagen)
+data/
+db.sqlite3
+db.sqlite3-journal
+TechBERT/
+PatVetBERT/
+scibert_*/
+biobert_*/
+pubmedbert_*/
+**/best_model/
+**/checkpoint-*/
+*.safetensors
+*.pt
+*.bin
+*.ckpt
+
+# Artefactos de build
+staticfiles/
+
+# Legacy / scripts auxiliares
+web/legacy/
+scripts/extract_web_assets.py
+scripts/patch_index_template.py
+scripts/reorganize_web_js.py
+
+# Documentación de planes
+*.plan.md
