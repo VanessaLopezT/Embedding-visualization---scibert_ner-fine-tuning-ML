@@ -749,7 +749,7 @@ curl -s http://localhost:9000/api/models | python -m json.tool
 This project was developed as an undergraduate thesis and applied research project at **Universidad de los Llanos** by:
 
 - **Vanessa López** ([@vanessalopezt](https://github.com/vanessalopezt))
-- **Javier Rojas** ([@JavicR22](https://github.com/JavicR22))
+- **Javic Rojas** ([@JavicR22](https://github.com/JavicR22))
 
 Research seedbed: **AdaLab**  
 Research group: **GITECX**  
@@ -762,7 +762,7 @@ The licensing and distribution terms for this software depend on how **Universid
 Este proyecto fue desarrollado como trabajo de grado e investigación aplicada en la **Universidad de los Llanos** por:
 
 - **Vanessa López** ([@vanessalopezt](https://github.com/vanessalopezt))
-- **Javier Rojas** ([@JavicR22](https://github.com/JavicR22))
+- **Javic Rojas** ([@JavicR22](https://github.com/JavicR22))
 
 Semillero de investigación: **AdaLab**  
 Grupo de investigación: **GITECX**  
